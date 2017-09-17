@@ -201,7 +201,7 @@ getFrame                               = getMessage
 getFramePayload :: (MonadThrow m) => PFr.Frame -> m B.ByteString
 getFramePayload frame = do 
   case PFr.payload frame of
-    Nothing -> throwM $ XProtocolExcpt "Payload is Nothing" 
+    Nothing -> throwM $ XProtocolException "tPayload is Nothing" 
     Just p  -> return $ BL.toStrict p
 
 getPayloadWarning ::  (MonadThrow m) => PFr.Frame -> m PW.Warning
@@ -337,7 +337,7 @@ mkAuthenticateContinue dbname username salt pw = PB.defaultValue {
         <> builder ("\x00"  :: String) 
         <> builder username 
         <> builder ("\x00*" :: String) 
-        <> builder (toHex' $ getPasswordHash'' salt pw)
+        <> builder (toHex' $ getPasswordHash salt pw)
      }
 
 mkAuthenticateOk                      :: (MonadThrow m) => B.ByteString -> m PAO.AuthenticateOk
@@ -739,9 +739,9 @@ _getScalarVal' t func trans info scl =
     if PS.type' scl == t then
       case func scl of 
         Just x  -> return $ trans x 
-        Nothing -> throwM $ XProtocolExcpt $ info ++ " value is Nothing" 
+        Nothing -> throwM $ XProtocolException $ info ++ " value is Nothing" 
     else
-      throwM $ XProtocolExcpt $ "type of scalar value is not " ++ info ++ ", actually " ++ (show $ PS.type' scl) 
+      throwM $ XProtocolException $ "type of scalar value is not " ++ info ++ ", actually " ++ (show $ PS.type' scl) 
  
 instance Scalable Int      where 
   scalar x                    = PB.defaultValue {PS.type' = PST.V_SINT  , PS.v_signed_int   = Just $ fromIntegral x}
@@ -921,9 +921,9 @@ getSessionStateChangedVal p info ssc = do
   if PSSC.param ssc == p then 
     case PSSC.value ssc of 
       Just s  -> getScalarVal' s 
-      Nothing -> throwM $ XProtocolExcpt $ "param is " ++ info ++ ", but Nothing"
+      Nothing -> throwM $ XProtocolException $ "param is " ++ info ++ ", but Nothing"
   else
-    throwM $ XProtocolExcpt $ "param is not " ++ info ++ ", but " ++ (show $ PSSC.param ssc) 
+    throwM $ XProtocolException $ "param is not " ++ info ++ ", but " ++ (show $ PSSC.param ssc) 
 
 
 --

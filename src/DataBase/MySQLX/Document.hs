@@ -1,10 +1,17 @@
--- {-# #-}
-
+{- |
+module      : DataBase.MySQLX.Document
+description : Basic Operations for Collections
+copyright   : (c) naoto ogawa, 2017
+license     : MIT 
+maintainer  :  
+stability   : experimental
+portability : 
+-}
 module DataBase.MySQLX.Document
-  ( 
-   createCollection 
-  ,dropCollection
---  ,insertDocument
+  (
+  -- * Basic Operations for Collections
+    createCollection 
+  , dropCollection
   ) where
 
 -- general, standard library
@@ -40,46 +47,25 @@ import DataBase.MySQLX.Model          as XM
 import DataBase.MySQLX.NodeSession 
 import DataBase.MySQLX.Util
 
-sendStmtExecuteX :: (MonadIO m, MonadThrow m) => String -> [PA.Any] -> ReaderT NodeSession m ()
-sendStmtExecuteX stmt args = do 
-  debug $ "stmtExecute = " ++ (show s)
-  writeMessageR s
-  where s = mkStmtExecuteX' stmt args
+-- -----------------------------------------------------------------------------
+-- 
+-- -----------------------------------------------------------------------------
 
---sendInsertX:: (MonadIO m, MonadThrow m) => String -> String -> String -> ReaderT NodeSession m ()
---sendInsertX schema table json = do
---  debug insert
---  writeMessageR insert 
---  where insert = mkInsertX schema table json 
+-- | Create a collection.
+createCollection :: (MonadIO m, MonadThrow m) 
+  => String      -- ^ schema
+  -> String      -- ^ table
+  -> NodeSession -- ^ node session
+  -> m ()
+createCollection = _doCollection "create_collection" 
 
-createCollection :: (MonadIO m, MonadThrow m) => String -> String -> NodeSession -> m ()
-createCollection schema table nodeSess = _doCollection "create_collection" schema table nodeSess
-
-dropCollection :: (MonadIO m, MonadThrow m) => String -> String -> NodeSession -> m ()
-dropCollection schema table nodeSess = _doCollection "drop_collection" schema table nodeSess
-
---insertDocument :: (MonadIO m, MonadThrow m) => String -> String -> String -> NodeSession -> m W.Word64
---insertDocument schema table json nodeSess = do
---  uuid <- liftIO $ nextRandom
---  runReaderT (reader uuid) nodeSess
---  (t, byte):xs <- runReaderT readMessagesT nodeSess
---  if t == s_error then do
---    msg <- getError byte 
---    throwM $ XProtocolError msg
---  else do 
---    frm <- getFrame byte
---    ssc <- getPayloadSessionStateChanged frm
---    getRowsAffected ssc
---  where
---    reader uuid = sendInsertX schema table (insertUUID json $ removeUnderscore $ toString uuid)
---    removeUnderscore x = foldr (\x a -> if x == '-' then a else x : a) [] x
-
-insertUUIDExpr :: PEx.Expr -> IO PEx.Expr
-insertUUIDExpr ex = do
-   newJson <- insertUUIDIO $ exprVal' ex
-   return $ expr newJson
-
--- insertUUIDIO :: String -> IO String
+-- | Drop a collection.
+dropCollection :: (MonadIO m, MonadThrow m) 
+  => String      -- ^ schema
+  -> String      -- ^ table
+  -> NodeSession -- ^ node session
+  -> m ()
+dropCollection = _doCollection "drop_collection" 
 
 --
 -- helpers
@@ -87,7 +73,7 @@ insertUUIDExpr ex = do
 _doCollection :: (MonadIO m, MonadThrow m) => String -> String -> String -> NodeSession -> m ()
 _doCollection operation schema table nodeSess = do
   runReaderT reader nodeSess
-  (t, byte):xs <- runReaderT readMessagesT nodeSess
+  (t, byte):xs <- runReaderT readMessagesR nodeSess
   if t == s_error then do
     msg <- getError byte 
     throwM $ XProtocolError msg
@@ -95,7 +81,7 @@ _doCollection operation schema table nodeSess = do
     ok <- getStmtExecuteOk byte
     debug ok
     return ()
-  where reader = sendStmtExecuteX
+  where reader = _sendStmtExecuteX
                  operation
                  [
                    anyObject $ setObject 
@@ -104,4 +90,10 @@ _doCollection operation schema table nodeSess = do
                       ,setObjectField "name"   $ XM.any table 
                      ]
                  ]
+
+_sendStmtExecuteX :: (MonadIO m, MonadThrow m) => String -> [PA.Any] -> ReaderT NodeSession m ()
+_sendStmtExecuteX stmt args = do 
+  debug $ "stmtExecute = " ++ (show s)
+  writeMessageR s
+  where s = mkStmtExecuteX' stmt args
 

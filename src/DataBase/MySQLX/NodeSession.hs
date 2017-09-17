@@ -1,8 +1,39 @@
-{-# LANGUAGE RecordWildCards     #-}
+{- |
+module      : Database.MySQLX.NodeSession
+description : Session management 
+copyright   : (c) naoto ogawa, 2017
+license     : MIT 
+maintainer  :  
+stability   : experimental
+portability : 
 
-module DataBase.MySQLX.NodeSession where
+Session (a.k.a. Connection)
 
+-}
+{-# LANGUAGE RecordWildCards #-}
 
+module DataBase.MySQLX.NodeSession 
+  (
+  -- * Session Infomation
+    NodeSessionInfo(..)
+  , defaultNodeSesssionInfo
+  -- * Node Session 
+  , NodeSession(clientId, auth_data)
+  -- * Session Management
+  , openNodeSession
+  , closeNodeSession
+  -- * Transaction
+  , begenTrxNodeSession
+  , commitNodeSession
+  , rollbackNodeSession
+  -- 
+  , readMessagesR 
+  , writeMessageR
+  -- * Helper functions
+  , isSocketConnected
+  ) where
+
+-- general, standard library
 import qualified Data.Binary          as BIN
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as BL 
@@ -25,9 +56,10 @@ import qualified Text.ProtocolBuffers.TextMessage    as PBT
 import qualified Text.ProtocolBuffers.WireMessage    as PBW
 import qualified Text.ProtocolBuffers.Reflections    as PBR
 
+-- generated library
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Error                              as PE 
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Frame                              as PFr
-import qualified Com.Mysql.Cj.Mysqlx.Protobuf.AuthenticateContinue as PAC
+import qualified Com.Mysql.Cj.Mysqlx.Protobuf.AuthenticateContinue               as PAC
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Ok                                 as POk
 
 -- my library
@@ -35,41 +67,55 @@ import DataBase.MySQLX.Model
 import DataBase.MySQLX.Util 
 import DataBase.MySQLX.Exception
 
---------------------------------------------------------------------------------
+-- -----------------------------------------------------------------------------
+-- 
+-- -----------------------------------------------------------------------------
 
+-- | Node Session Object
 data NodeSession = NodeSession
-    {
-      _socket   :: Socket          -- TODO should hide socket
-    , clientId  :: W.Word64
-    , auth_data :: BL.ByteString
+    { _socket   :: Socket         -- ^ socket 
+    , clientId  :: W.Word64       -- ^ client id given by MySQL Server
+    , auth_data :: BL.ByteString  -- ^ auth_data given by MySQL Server
     } deriving Show
 
+-- | Infomation Object of Node Session
 data NodeSessionInfo = NodeSessionInfo 
-    { host     :: HostName
-    , port     :: PortNumber
-    , database :: String 
-    , user     :: String
-    , password :: String
-    , charset  :: String
+    { host     :: HostName       -- ^ host name
+    , port     :: PortNumber     -- ^ port nummber
+    , database :: String         -- ^ database name
+    , user     :: String         -- ^ user
+    , password :: String         -- ^ password
+    , charset  :: String         -- ^ charset
     } deriving Show
 
+-- | Default NodeSessionInfo
+-- 
+--  * host     : 127.0.0.1
+--  * port     : 33600
+--  * database : ""
+--  * user     : "root"
+--  * password : ""
+--  * charset  : ""
+-- 
+defaultNodeSesssionInfo :: NodeSessionInfo 
 defaultNodeSesssionInfo = NodeSessionInfo "127.0.0.1" 33060 "" "root" "" ""
 
---
--- transactions
---
+-- | a message (type, payload)
+type Message = (Int, B.ByteString) 
 
-openNodeSession :: (MonadIO m, MonadThrow m) => NodeSessionInfo -> m NodeSession
+-- -----------------------------------------------------------------------------
+-- Session Management
+-- -----------------------------------------------------------------------------
+-- | Open node session.
+openNodeSession :: (MonadIO m, MonadThrow m) 
+  => NodeSessionInfo -- ^ NodeSessionInfo
+  -> m NodeSession   -- ^ NodeSession
 openNodeSession sessionInfo = do
 
   socket <- _client (host sessionInfo) (port sessionInfo)
   let session = NodeSession socket (fromIntegral 0) BL.empty 
 
   x <- runReaderT _negociate session
-  debug "************************"
-  debug x
-  debug "************************"
-
 
   (t, msg):xs <- runReaderT (_auth sessionInfo) session
   case t of 
@@ -86,12 +132,13 @@ openNodeSession sessionInfo = do
           id <- getClientId changed
           debug $ "NodeSession is opend; clientId =" ++ (show id)
           return session {clientId = id} 
-        Nothing -> throwM $ XProtocolExcpt "Payload is Nothing" -- liftIO $ print "nothing"
+        Nothing -> throwM $ XProtocolException "Payload is Nothing" -- liftIO $ print "nothing"
     1  -> do                                            -- TODO
       err <- getError msg
       throwM $ XProtocolError err
     _  -> error $ "message type unknown, =" ++ show t
 
+-- | Close node session.
 closeNodeSession ::  (MonadIO m, MonadThrow m) => NodeSession -> m ()
 closeNodeSession nodeSess = do
   runReaderT (sendClose >> recieveOk) nodeSess
@@ -99,7 +146,8 @@ closeNodeSession nodeSess = do
   debug "NodeSession is closed."
   return ()
 
-_client :: (MonadIO m) => HostName -> PortNumber -> m Socket  -- TODO hiding
+-- | Make a socket for session.
+_client :: (MonadIO m) => HostName -> PortNumber -> m Socket 
 _client host port = liftIO $ withSocketsDo $ do
   addrInfo <- getAddrInfo Nothing (Just host) (Just $ show port)
   let serverAddr = head addrInfo
@@ -107,63 +155,21 @@ _client host port = liftIO $ withSocketsDo $ do
   connect sock (addrAddress serverAddr)
   return sock
 
-{-
-naming rule 
-  Application Data <-- recv <-- [Protocol Buffer Object] <-- get <-- [Byte Data] <-- read  <-- [Socket]
-  Application Data --> send --> [Protocol Buffer Object] --> put --> [Byte Data] --> write --> [Socket]
-
-  mkFoo --> [Protocol Buffer Object]
-
-
-
-(a) client -> server message implementatin pattern
-
-1) make pure function from some params to a PB object  ==> hidden
-
-2) make the above function to Reader Monad
-  --> open package
-
-ex)
-mkAuthenticateStart
-|
-V
-sendAuthenticateStart :: (MonadIO m) => String -> ReaderT NodeSession m () 
-sendAuthenticateStart = writeMessageR . mkAuthenticateStart
-
-
-(b) server -> client message implemention patten
-
-1) make pure function from ByteString to a PB object 
-  ex) getAuthenticateContinue :: B.ByteString -> PAC.AuthenticateContinue ==> hidden
-      getAuthenticateContinue' = getMessage 
-
-2) make the above function to Reader Monad
-
-3) make a function to get concrete data, not Protocol Buffer Objects  ==> open
-  ex) recieveSalt :: (MonadIO m) => ReaderT NodeSession m B.ByteString
-
-(c) client -> server -> client message implementation
-
-1) combine (a) and (b) so that we get a turn-around function between client and server. 
-
-
--}
-
-_auth :: (MonadIO m, MonadThrow m) => NodeSessionInfo -> ReaderT NodeSession m [(Int, B.ByteString)]
+_auth :: (MonadIO m, MonadThrow m) => NodeSessionInfo -> ReaderT NodeSession m [Message]
 _auth NodeSessionInfo{..} = do
  sendAuthenticateStart user
  salt <- recieveSalt
  sendAutenticateContinue database user password salt
- msgs <- readMessagesT 
+ msgs <- readMessagesR 
  return msgs 
 
 sendCapabilitiesGet :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m () 
 sendCapabilitiesGet = writeMessageR mkCapabilitiesGet 
 
-_negociate :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m [(Int, B.ByteString)]
+_negociate :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m [Message]
 _negociate = do
   sendCapabilitiesGet
-  ret@(x:xs) <- readMessagesT 
+  ret@(x:xs) <- readMessagesR 
   if fst x == s_error then do
     msg <- getError $ snd x
     throwM $ XProtocolError msg
@@ -184,11 +190,11 @@ sendClose = writeMessageR mkClose
 
 recieveSalt :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m B.ByteString
 recieveSalt = do
-  msg <- getAuthenticateContinueT
+  msg <- getAuthenticateContinueR
   return $ BL.toStrict $ PAC.auth_data msg
 
 recieveOk :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m POk.Ok
-recieveOk = getOkT
+recieveOk = getOkR
 
 
 {-
@@ -236,6 +242,7 @@ writeMessage NodeSession{..} msg = do
     len   = fromIntegral   $ PBW.messageSize        msg 
     ty    = putMessageType $ fromIntegral $ getClientMsgTypeNo msg
 
+-- | write a message.
 writeMessageR :: (PBT.TextMsg           msg
                  ,PBR.ReflectDescriptor msg
                  ,PBW.Wire              msg
@@ -246,111 +253,110 @@ writeMessageR msg = do
   session <- ask
   liftIO $ writeMessage session msg
 
+getErrorR :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m PE.Error 
+getErrorR = readOneMessageR >>= \(_, msg) -> getError msg 
 
-getErrorT :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m PE.Error 
-getErrorT = readOneMessageT >>= \(_, msg) -> getError msg 
+getFrameR :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m PFr.Frame 
+getFrameR = readOneMessageR >>= \(_, msg) -> getFrame msg 
 
+getAuthenticateContinueR :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m PAC.AuthenticateContinue
+getAuthenticateContinueR = readOneMessageR >>= \(_, msg) -> getAuthenticateContinue msg 
 
-getFrameT :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m PFr.Frame 
-getFrameT = readOneMessageT >>= \(_, msg) -> getFrame msg 
+getOkR :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m POk.Ok
+getOkR = readOneMessageR >>= \(_, msg) -> getOk msg 
 
-getAuthenticateContinueT :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m PAC.AuthenticateContinue
-getAuthenticateContinueT = readOneMessageT >>= \(_, msg) -> getAuthenticateContinue msg 
-
-getOkT :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m POk.Ok
-getOkT = readOneMessageT >>= \(_, msg) -> getOk msg 
-
-getOneMessageT :: (MonadIO               m
+getOneMessageR :: (MonadIO               m
                   ,MonadThrow            m
                   ,PBW.Wire              a
                   ,PBR.ReflectDescriptor a
                   ,PBT.TextMsg           a
                   ,Typeable              a) => ReaderT NodeSession m a
-getOneMessageT = do 
+getOneMessageR = do 
   session <- ask 
   (_, msg) <- liftIO $  readOneMessage session
   getMessage msg 
 
-readMessages :: (MonadIO m) => NodeSession -> m [(Int, B.ByteString)]
+readMessages :: (MonadIO m) => NodeSession -> m [Message]
 readMessages NodeSession{..} = do
-   len <- runReaderT readMsgLengthT _socket
+   len <- runReaderT readMsgLengthR _socket
    liftIO $ print $ "1st length =" ++ (show $ getIntFromLE len)
-   ret <- runReaderT (readAllMsgT (fromIntegral $ getIntFromLE len)) _socket
+   ret <- runReaderT (readAllMsgR (fromIntegral $ getIntFromLE len)) _socket
    return ret
 
-readMessagesT :: (MonadIO m) => ReaderT NodeSession m [(Int, B.ByteString)] 
-readMessagesT = ask >>= liftIO . readMessages
+-- | retrieve messages from Node session.
+readMessagesR :: (MonadIO m) => ReaderT NodeSession m [Message] 
+readMessagesR = ask >>= liftIO . readMessages
 
-readOneMessage :: (MonadIO m) => NodeSession -> m (Int, B.ByteString)
-readOneMessage NodeSession{..} = runReaderT readOneMsgT _socket 
+readOneMessage :: (MonadIO m) => NodeSession -> m Message
+readOneMessage NodeSession{..} = runReaderT readOneMsgR _socket 
 
-readOneMessageT :: (MonadIO m) => ReaderT NodeSession m (Int, B.ByteString)
-readOneMessageT = ask >>= liftIO . readOneMessage 
+readOneMessageR :: (MonadIO m) => ReaderT NodeSession m Message
+readOneMessageR = ask >>= liftIO . readOneMessage 
 
-readNMessage :: (MonadIO m) => Int -> NodeSession -> m [(Int, B.ByteString)]
-readNMessage n NodeSession{..} = runReaderT (readNMsgT n) _socket 
+readNMessage :: (MonadIO m) => Int -> NodeSession -> m [Message]
+readNMessage n NodeSession{..} = runReaderT (readNMsgR n) _socket 
 
-readNMessageT :: (MonadIO m) => Int -> ReaderT NodeSession m [(Int, B.ByteString)]
-readNMessageT n = ask >>= liftIO . readNMessage n
+readNMessageR :: (MonadIO m) => Int -> ReaderT NodeSession m [Message]
+readNMessageR n = ask >>= liftIO . readNMessage n
 
 --
 -- Using Socket 
 --
 
-readSocketT :: (MonadIO m) => Int -> ReaderT Socket m B.ByteString
-readSocketT len = ask >>= (\x -> liftIO $ recv x len) 
+readSocketR :: (MonadIO m) => Int -> ReaderT Socket m B.ByteString
+readSocketR len = ask >>= (\x -> liftIO $ recv x len) 
 
-readMsgLengthT :: (MonadIO m) => ReaderT Socket m B.ByteString
-readMsgLengthT = readSocketT 4
+readMsgLengthR :: (MonadIO m) => ReaderT Socket m B.ByteString
+readMsgLengthR = readSocketR 4
 
-readMsgTypeT :: (MonadIO m) => ReaderT Socket m B.ByteString
-readMsgTypeT = readSocketT 1
+readMsgTypeR :: (MonadIO m) => ReaderT Socket m B.ByteString
+readMsgTypeR = readSocketR 1
 
-readNextMsgT :: (MonadIO m) => Int -> ReaderT Socket m (B.ByteString, B.ByteString)
-readNextMsgT len = do 
-  bytes <- readSocketT (len + 4)
+readNextMsgR :: (MonadIO m) => Int -> ReaderT Socket m (B.ByteString, B.ByteString)
+readNextMsgR len = do 
+  bytes <- readSocketR (len + 4)
   return $ if B.length bytes == len 
   then
     (bytes, B.empty)
   else 
     B.splitAt len bytes
 
-readOneMsgT :: (MonadIO m) => ReaderT Socket m (Int, B.ByteString)
-readOneMsgT = do
-   l <- readMsgLengthT
-   t <- readMsgTypeT
-   m <- readSocketT $ fromIntegral $ (getIntFromLE l) -1 
+readOneMsgR :: (MonadIO m) => ReaderT Socket m Message
+readOneMsgR = do
+   l <- readMsgLengthR
+   t <- readMsgTypeR
+   m <- readSocketR $ fromIntegral $ (getIntFromLE l) -1 
    return (byte2Int t, m)
 
-readNMsgT :: (MonadIO m) => Int -> ReaderT Socket m [(Int, B.ByteString)]
-readNMsgT n = sequence $ take n . repeat $ readOneMsgT
+readNMsgR :: (MonadIO m) => Int -> ReaderT Socket m [Message]
+readNMsgR n = sequence $ take n . repeat $ readOneMsgR
 
-readAllMsgT :: (MonadIO m) => Int -> ReaderT Socket m [(Int, B.ByteString)]
-readAllMsgT len = do
-  t <- readMsgTypeT
+readAllMsgR :: (MonadIO m) => Int -> ReaderT Socket m [Message]
+readAllMsgR len = do
+  t <- readMsgTypeR
   let t' = byte2Int t   
   if t' == s_sql_stmt_execute_ok then -- SQL_STMT_EXECUTE_OK is the last message and has no data.
     return [(s_sql_stmt_execute_ok, B.empty)]
   else do
     debug $ "type=" ++ (show $ byte2Int t) ++ ", readking len=" ++ (show (len-1 `max` 0)) ++ " , plus 4 byte"
-    (msg, len) <- readNextMsgT (len-1)
+    (msg, len) <- readNextMsgR (len-1)
     debug $ (show msg) ++ " , next length of readking chunk byte is " ++ (show $ if B.null len then 0 else getIntFromLE len)
     if B.null len 
     then 
       return [(t', msg)]
     else do
-      msgs <- readAllMsgT $ fromIntegral $ getIntFromLE len
+      msgs <- readAllMsgR $ fromIntegral $ getIntFromLE len
       return $ (t', msg): msgs 
---
--- transaction
---
 
+-- | Begin a transaction.
 begenTrxNodeSession :: (MonadIO m, MonadThrow m) => NodeSession -> m W.Word64
 begenTrxNodeSession = doSimpleSessionStateChangeStmt "begin"
 
+-- | Commit a transaction.
 commitNodeSession :: (MonadIO m, MonadThrow m) => NodeSession -> m W.Word64
 commitNodeSession = doSimpleSessionStateChangeStmt "commit"
 
+-- | Rollback a transaction.
 rollbackNodeSession :: (MonadIO m, MonadThrow m) => NodeSession -> m W.Word64
 rollbackNodeSession = doSimpleSessionStateChangeStmt "rollback"
 
@@ -361,7 +367,7 @@ doSimpleSessionStateChangeStmt :: (MonadIO m, MonadThrow m) => String -> NodeSes
 doSimpleSessionStateChangeStmt sql nodeSess = do 
   debug $ "session state change statement : " ++ sql
   runReaderT (writeMessageR (mkStmtExecuteSql sql [])) nodeSess
-  ret@(x:xs) <- runReaderT readMessagesT nodeSess                           -- [(Int, B.ByteString)]
+  ret@(x:xs) <- runReaderT readMessagesR nodeSess                           -- [Message]
   if fst x == 1 then do
     msg <- getError $ snd x
     throwM $ XProtocolError msg
@@ -373,7 +379,49 @@ doSimpleSessionStateChangeStmt sql nodeSess = do
 byte2Int :: B.ByteString -> Int
 byte2Int = fromIntegral . B.head
 
+-- | check a raw socket connectin.
 isSocketConnected :: NodeSession -> IO Bool 
 isSocketConnected NodeSession{..} = do 
   isConnected _socket
 
+{-
+naming rule 
+  Application Data <-- recv <-- [Protocol Buffer Object] <-- get <-- [Byte Data] <-- read  <-- [Socket]
+  Application Data --> send --> [Protocol Buffer Object] --> put --> [Byte Data] --> write --> [Socket]
+
+  mkFoo --> [Protocol Buffer Object]
+
+
+
+(a) client -> server message implementatin pattern
+
+1) make pure function from some params to a PB object  ==> hidden
+
+2) make the above function to Reader Monad
+  --> open package
+
+ex)
+mkAuthenticateStart
+|
+V
+sendAuthenticateStart :: (MonadIO m) => String -> ReaderT NodeSession m () 
+sendAuthenticateStart = writeMessageR . mkAuthenticateStart
+
+
+(b) server -> client message implemention patten
+
+1) make pure function from ByteString to a PB object 
+  ex) getAuthenticateContinue :: B.ByteString -> PAC.AuthenticateContinue ==> hidden
+      getAuthenticateContinue' = getMessage 
+
+2) make the above function to Reader Monad
+
+3) make a function to get concrete data, not Protocol Buffer Objects  ==> open
+  ex) recieveSalt :: (MonadIO m) => ReaderT NodeSession m B.ByteString
+
+(c) client -> server -> client message implementation
+
+1) combine (a) and (b) so that we get a turn-around function between client and server. 
+
+
+-}

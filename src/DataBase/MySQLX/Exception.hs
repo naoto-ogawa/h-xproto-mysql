@@ -1,13 +1,43 @@
+{- |
+module      : Database.MySQLX.Exception
+description : Exception 
+copyright   : (c) naoto ogawa, 2017
+license     : MIT 
+maintainer  :  
+stability   : experimental
+portability : 
 
-module DataBase.MySQLX.Exception where
+Exceptions
 
+-}
+{-# LANGUAGE RecordWildCards #-}
+
+module DataBase.MySQLX.Exception 
+  (
+    -- * Exception
+     XProtocolError(..)
+  ,  XProtocolException(..)
+    -- * Helper functions
+  , isError
+  , isFatal
+  , getErrorCode
+  , getErrorSQLState
+  , getErrorMsg
+  , getExceptionMsg
+    -- * handler functions
+  , handleError
+  , handleException
+  ) where
+
+-- general, standard library
+import Control.Exception.Safe (Exception, MonadThrow, SomeException, throwM, Handler(..))
 import Data.Typeable          (TypeRep, Typeable, typeRep, typeOf)
-import Control.Exception.Safe (Exception, MonadThrow, SomeException, throwM)
-
 import Data.Word
 import qualified Data.ByteString.Lazy as BL 
 
-import qualified  Com.Mysql.Cj.Mysqlx.Protobuf.Error                              as PE 
+-- generated library
+import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Error                              as PE 
+import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Error.Severity                     as PES 
 
 -- protocol buffer library
 import qualified Text.ProtocolBuffers                as PB
@@ -17,53 +47,55 @@ import qualified Text.ProtocolBuffers.TextMessage    as PBT
 import qualified Text.ProtocolBuffers.WireMessage    as PBW
 import qualified Text.ProtocolBuffers.Reflections    as PBR
 
-data XProtocolException = XProtocolError PE.Error 
-                        | XProtocolExcpt String
-                        deriving (Typeable, Show)
+-- -----------------------------------------------------------------------------
+-- 
+-- -----------------------------------------------------------------------------
 
+-- | An error sent by X Protocol
+data  XProtocolError = XProtocolError PE.Error 
+  deriving (Typeable, Show)
+instance Exception XProtocolError
 
-instance Exception XProtocolException 
+-- | An exception in this library
+data  XProtocolException = XProtocolException String  
+  deriving (Typeable, Show)
+instance Exception XProtocolException
 
--- data MessageGetException = MessageGetException String TypeRep deriving (Typeable)
+-- | check if severity of X Protocol Error is ERROR.
+isError :: XProtocolError -> Bool
+isError = _isSeverity PES.ERROR
 
--- instance Exception MessageGetException
+-- | check if severity of X Protocol Error is FATAL.
+isFatal:: XProtocolError -> Bool
+isFatal = _isSeverity PES.FATAL
 
--- instance Show MessageGetException where
---   show (MessageGetException s typ) = concat
---     [ "Unable to parse as "
---     , show typ
---     , ": "
---     , show s
---     ]
--- 
--- --
--- data XProtocolException = XProtocolException String
--- 
--- instance Show XProtocolException where
---   show (XProtocolException error) = "XProtocolException :: " ++ show error
--- 
--- instance Exception XProtocolException
--- 
--- --
--- data XProtocolErrorException = XProtocolErrorException PE.Error 
--- 
--- instance Exception XProtocolErrorException
--- 
--- instance Show XProtocolErrorException where
---   show (XProtocolErrorException error) = "XProtocolErrorException :: " ++ show error
--- 
--- errorMsg :: XProtocolErrorException -> String
--- errorMsg (XProtocolErrorException error) = PBB.uToString $ PE.msg error
--- 
--- errorMsg' :: XProtocolErrorException -> BL.ByteString
--- errorMsg' (XProtocolErrorException error) = PBB.utf8$ PE.msg error
--- 
--- errorCode :: XProtocolErrorException -> Word32 
--- errorCode (XProtocolErrorException error) = PE.code error
--- 
--- errorState :: XProtocolErrorException -> String
--- errorState (XProtocolErrorException error) = PBB.uToString $ PE.sql_state error
--- 
--- errorState' :: XProtocolErrorException -> BL.ByteString
--- errorState' (XProtocolErrorException error) = PBB.utf8$ PE.sql_state error
+_isSeverity :: PES.Severity -> XProtocolError -> Bool
+_isSeverity s (XProtocolError PE.Error{..}) = 
+  case severity of
+    Nothing -> False
+    Just x  -> x == s
+
+-- | get error code.
+getErrorCode :: XProtocolError -> Int
+getErrorCode (XProtocolError PE.Error{..}) = fromIntegral code 
+
+-- | get error sql state 
+getErrorSQLState :: XProtocolError -> String 
+getErrorSQLState (XProtocolError PE.Error{..}) = PBH.uToString sql_state
+
+-- | get error message.
+getErrorMsg :: XProtocolError -> String
+getErrorMsg (XProtocolError PE.Error{..}) = PBH.uToString msg
+
+-- | get exception message.
+getExceptionMsg :: XProtocolException -> String
+getExceptionMsg (XProtocolException msg) = msg
+
+-- | Make a handler of XProtocolError
+handleError :: (XProtocolError -> m a) -> Handler m a 
+handleError = Handler 
+
+-- | Make a handler of XProtocolError
+handleException :: (XProtocolException -> m a) -> Handler m a 
+handleException = Handler 
 
