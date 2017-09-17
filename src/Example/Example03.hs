@@ -27,7 +27,7 @@ import DataBase.MySQLX.TH
 import DataBase.MySQLX.Util
 import DataBase.MySQLX.Util
 
-import Example.Example01
+import Example.Example03_data
 
 --
 -- Select interfaces
@@ -39,14 +39,13 @@ example03_1 = do
   node <- openNodeSession $ defaultNodeSesssionInfo {database = "world_x", user = "root", password="root"}
   debug $ "node=" ++ (show node)
   
-  select03_1 node
+  select1 node
 
   closeNodeSession node
   putStrLn "end example01"
 
-
-select03_1 :: NodeSession -> IO () 
-select03_1 node = do
+select1 :: NodeSession -> IO () 
+select1 node = do
   print "start select 1 ---------- "
   ret@(x:xs) <- executeRawSql "select * from city limit 2" node
   print ( $(retrieveRow ''MyRecord) x )
