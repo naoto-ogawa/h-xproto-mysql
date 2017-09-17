@@ -2,7 +2,7 @@
 
 module Example.Example01 where
 
-import Control.Exception.Safe (Exception, MonadThrow, SomeException, throwM, bracket, catch)
+import Control.Exception.Safe
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as BL 
 import qualified Data.Sequence        as Seq
@@ -70,13 +70,31 @@ example04 = do
          print $ "ret1=" ++ (show ret1) ++ ", " ++ "ret2=" ++ (show ret2)
          commitNodeSession nodeSess
          return nodeSess
-       `catch`
-         \(e :: XProtocolException)-> do
-           case e of
-             XProtocolError ex -> print $ "catching XProtocolError :" ++ (show ex) 
-             XProtocolExcpt ex -> print $ "catching XProtocolExcpt :" ++ (show ex) 
-           rollbackNodeSession nodeSess
-           return nodeSess 
+       
+       `catches` 
+         [
+           handleError (\ex -> do
+              print $ "catching XProtocolError :" ++ (show ex) 
+              rollbackNodeSession nodeSess
+              return nodeSess 
+           )
+--            Handler $ \(ex :: XProtocolError) -> do
+--              print $ "catching XProtocolError :" ++ (show ex) 
+--              rollbackNodeSession nodeSess
+--              return nodeSess 
+         , handleException $ (\ex -> do
+             print $ "catching XProtocolException :" ++ (show ex) 
+             rollbackNodeSession nodeSess
+             return nodeSess 
+           )
+         ]
+--        `catch`
+--          \(e :: SomeException)-> do
+--            case e of
+--              XProtocolError ex -> print $ "catching XProtocolError :" ++ (show ex) 
+--              XProtocolException ex -> print $ "catching XProtocolException :" ++ (show ex) 
+--            rollbackNodeSession nodeSess
+--            return nodeSess 
     )
 
   putStrLn "end example04 #########################"
@@ -86,6 +104,11 @@ example04 = do
     printRow x = do
       print $ getColInt64  x 0
       print $ getColString x 1
+
+xx :: (XProtocolError -> m a) -> Handler m a 
+xx f = Handler f 
+
+
 --
 -- create and drop a table.
 --
@@ -237,11 +260,4 @@ printMeta meta idx = do
 
 
 
--- +----+----------+-------------+----------+-------------------------+
--- | ID | Name     | CountryCode | District | Info                    |
--- +----+----------+-------------+----------+-------------------------+
--- |  1 | Kabul    | AFG         | Kabol    | {"Population": 1780000} |
--- |  2 | Qandahar | AFG         | Qandahar | {"Population": 237500}  |
--- +----+----------+-------------+----------+-------------------------+
-data MyRecord = MyRecord {id :: Int, name :: String, country_code :: String, district :: String, info :: String} deriving (Show, Eq)
 
