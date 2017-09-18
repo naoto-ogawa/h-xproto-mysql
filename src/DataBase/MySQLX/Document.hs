@@ -84,7 +84,7 @@ _doCollection operation schema table nodeSess = do
   where reader = _sendStmtExecuteX
                  operation
                  [
-                   anyObject $ setObject 
+                   XM.any $ setObject 
                      [
                        setObjectField "schema" $ XM.any schema
                       ,setObjectField "name"   $ XM.any table 
