@@ -1,6 +1,19 @@
-{-# LANGUAGE TypeSynonymInstances, FlexibleInstances, RecordWildCards  #-}
+{- |
+module      : Database.MySQLX.Model
+description : crud interface 
+copyright   : (c) naoto ogawa, 2017
+license     : MIT 
+maintainer  :  
+stability   : experimental
+portability : 
 
-module DataBase.MySQLX.Model where
+-}
+
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE RecordWildCards      #-}
+
+module DataBase.MySQLX.Model  where
 
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Any.Type                           as PAT
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Any                                as PA
@@ -86,10 +99,12 @@ import qualified Text.ProtocolBuffers.TextMessage    as PBT
 import qualified Text.ProtocolBuffers.WireMessage    as PBW
 import qualified Text.ProtocolBuffers.Reflections    as PBR
 
+-- general, standard library
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as BL 
 import Data.ByteString.Builder
 import Data.ByteString.Conversion.To
+import qualified Data.Foldable        as F
 import Data.Int                       as I
 import Data.List (find)
 import Data.Maybe                     as M
@@ -299,38 +314,65 @@ mkAnyType                             = PB.defaultValue
 {-
 Any :: data Type = SCALAR | OBJECT | ARRAY 
 -}
-mkAny                                 :: PA.Any 
-mkAny                                 = PB.defaultValue
+-- mkAny                                 :: PA.Any 
+-- mkAny                                 = PB.defaultValue
 
-anyScalar :: PS.Scalar -> PA.Any
-anyScalar x = PB.defaultValue {PA.type' = PAT.SCALAR, PA.scalar = Just x}
+-- | Make a SCALAR type Any. Don't use this function, use any. (TODO hiding)
+mkAnyScalar :: PS.Scalar -> PA.Any
+mkAnyScalar x = PB.defaultValue {PA.type' = PAT.SCALAR, PA.scalar = Just x}
 
-class    Anyable a        where any :: a -> PA.Any -- Int, Word8, Double, Float, Bool, String
-instance Anyable Int      where any = anyScalar . scalar
-instance Anyable Word8    where any = anyScalar . scalar
-instance Anyable Double   where any = anyScalar . scalar
-instance Anyable Float    where any = anyScalar . scalar
-instance Anyable Bool     where any = anyScalar . scalar
-instance Anyable String where any = anyScalar . scalar
+-- | Make an OBJECT type Any. Don't use this function, use any. (TODO hiding)
+mkAnyObject :: PO.Object -> PA.Any
+mkAnyObject x = PB.defaultValue {PA.type' = PAT.OBJECT, PA.obj = Just x}
 
-class    Anyables a       where anys :: [a] -> [PA.Any] -- Int, Word8, Double, Float, Bool, String
-instance Anyables Int     where anys = Prelude.map DataBase.MySQLX.Model.any 
-instance Anyables Word8   where anys = Prelude.map DataBase.MySQLX.Model.any
-instance Anyables Double  where anys = Prelude.map DataBase.MySQLX.Model.any
-instance Anyables Float   where anys = Prelude.map DataBase.MySQLX.Model.any
-instance Anyables Bool    where anys = Prelude.map DataBase.MySQLX.Model.any
-instance Anyables String where anys = Prelude.map DataBase.MySQLX.Model.any
+-- | Make a ARRAY type Any. Don't use this function, use any. (TODO hiding)
+mkAnyArray :: PAR.Array -> PA.Any
+mkAnyArray x = PB.defaultValue {PA.type' = PAT.ARRAY, PA.array = Just x}
 
-anyObject :: PO.Object -> PA.Any
-anyObject x = PB.defaultValue {PA.type' = PAT.OBJECT, PA.obj = Just x}
+{-
+data Any = Any{
+    type'  :: !(Com.Mysql.Cj.Mysqlx.Protobuf.Any.Type)
+  , scalar :: !(P'.Maybe Com.Mysql.Cj.Mysqlx.Protobuf.Scalar)
+  , obj    :: !(P'.Maybe Com.Mysql.Cj.Mysqlx.Protobuf.Object)
+  , array  :: !(P'.Maybe Com.Mysql.Cj.Mysqlx.Protobuf.Array)
+}
 
-anyArray :: PAR.Array -> PA.Any
-anyArray x = PB.defaultValue {PA.type' = PAT.ARRAY, PA.array = Just x}
+Int, Int64, Word8, Word64, Double, Float, Bool, String, Text, Object, Array,
 
-mkArray                               :: PAR.Array                              
-mkArray                               = PB.defaultValue
+-}
 
-mkAuthenticateContinue                :: (ToByteString a, ToByteString b, ToByteString c, ToByteString d) => a -> b -> c-> d -> PAC.AuthenticateContinue               
+-- | Make an Any instance.
+class    Anyable a        where 
+  -- | Make an Any instance.
+  any :: a -> PA.Any
+  -- | Make a list of Any instance.
+  anys :: [a] -> [PA.Any] 
+  anys = Prelude.map DataBase.MySQLX.Model.any 
+instance Anyable Int       where any = mkAnyScalar . scalar
+instance Anyable Int64     where any = mkAnyScalar . scalar
+instance Anyable Word8     where any = mkAnyScalar . scalar
+instance Anyable Word64    where any = mkAnyScalar . scalar
+instance Anyable Double    where any = mkAnyScalar . scalar
+instance Anyable Float     where any = mkAnyScalar . scalar
+instance Anyable Bool      where any = mkAnyScalar . scalar
+instance Anyable String    where any = mkAnyScalar . scalar
+instance Anyable Text      where any = mkAnyScalar . scalar
+instance Anyable PS.Scalar where any = mkAnyScalar
+instance Anyable PO.Object where any = mkAnyObject
+instance Anyable PAR.Array where any = mkAnyArray
+
+-- data Array = Array{value :: !(P'.Seq Com.Mysql.Cj.Mysqlx.Protobuf.Expr)}
+-- | Make a Array instance.
+mkArray :: [PEx.Expr] -> PAR.Array                              
+mkArray xs = PAR.Array {value = Seq.fromList xs}
+
+-- | Make an authenticate continue instance.
+mkAuthenticateContinue :: (ToByteString a, ToByteString b, ToByteString c, ToByteString d) 
+  => a -- ^ Database name
+  -> b -- ^ User name
+  -> c -- ^ Salt, which is given by MySQL Server.
+  -> d -- ^ Password
+  -> PAC.AuthenticateContinue               
 mkAuthenticateContinue dbname username salt pw = PB.defaultValue { 
      PAC.auth_data = toLazyByteString $  
            builder dbname 
@@ -343,8 +385,11 @@ mkAuthenticateContinue dbname username salt pw = PB.defaultValue {
 mkAuthenticateOk                      :: (MonadThrow m) => B.ByteString -> m PAO.AuthenticateOk
 mkAuthenticateOk                      = getMessage 
 
-mkAuthenticateStart                   :: (ToByteString a) => a -> PAS.AuthenticateStart                  
-mkAuthenticateStart user              = PB.defaultValue {
+-- | Make an authenticate start instance.
+mkAuthenticateStart :: (ToByteString a) 
+  => a  -- ^ User name 
+  -> PAS.AuthenticateStart                  
+mkAuthenticateStart user = PB.defaultValue {
     PAS.mech_name = PBH.uFromString "MYSQL41"
   , PAS.auth_data = Just $ toByteString user
   }
@@ -365,8 +410,18 @@ mkClose                               :: PC.Close
 mkClose                               = PB.defaultValue
 
 {- Collection -}
-mkCollection :: String -> String -> PCll.Collection
-mkCollection schema name = PCll.Collection {PCll.name = PBH.uFromString name, PCll.schema = Just $ PBH.uFromString schema} 
+-- | Make a collection instance.
+mkCollection :: 
+     String  -- ^ schema
+  -> String  -- ^ collection name
+  -> PCll.Collection
+mkCollection schema name = PCll.Collection (PBH.uFromString name) (Just $ PBH.uFromString schema)
+
+-- | Make a collection instance without a schema name.
+mkCollection' :: 
+     String  -- ^ collection name
+  -> PCll.Collection
+mkCollection' name = PCll.Collection (PBH.uFromString name) Nothing
 
 mkColumn                              :: PCol.Column                             
 mkColumn                              = PB.defaultValue
@@ -498,30 +553,65 @@ mkExpr                                :: PEx.Expr
 mkExpr                                = PB.defaultValue
 
 
-
+-- | Make an Expr instance and Retrieve a value from Expr
 class Exprable a where 
-  expr    :: a -> PEx.Expr -- Int, Word8, Double, Float, Bool, String, Text, Object, Array, [ObjectField]
+  -- | Make an Expr instance.
+  expr    :: a -> PEx.Expr 
+  -- | Retrieve a value from Expr safely.
   exprVal :: PEx.Expr -> Maybe a
   exprVal = undefined      -- TODO impiementations
+  -- | Retrieve a value from Expr.
   exprVal' :: PEx.Expr -> a
   exprVal' = M.fromJust . exprVal 
+
 -- LITERAL
-instance Exprable Int     where expr = exprLiteral . scalar
-instance Exprable Word8   where expr = exprLiteral . scalar
-instance Exprable Double  where expr = exprLiteral . scalar
-instance Exprable Float   where expr = exprLiteral . scalar
-instance Exprable Bool    where expr = exprLiteral . scalar
+instance Exprable Int     where 
+  expr    = exprLiteral . scalar
+  exprVal = join . fmap getScalarVal . PEx.literal
+instance Exprable Int64   where 
+  expr    = exprLiteral . scalar
+  exprVal = join . fmap getScalarVal . PEx.literal
+instance Exprable Word8   where 
+  expr    = exprLiteral . scalar
+  exprVal = join . fmap getScalarVal . PEx.literal
+instance Exprable Word64  where 
+  expr    = exprLiteral . scalar
+  exprVal = join . fmap getScalarVal . PEx.literal
+instance Exprable Double  where 
+  expr    = exprLiteral . scalar
+  exprVal = join . fmap getScalarVal . PEx.literal
+instance Exprable Float   where 
+  expr    = exprLiteral . scalar
+  exprVal = join . fmap getScalarVal . PEx.literal
+instance Exprable Bool    where 
+  expr    = exprLiteral . scalar
+  exprVal = join . fmap getScalarVal . PEx.literal
 instance Exprable String  where 
   expr    = exprLiteral . scalar
-  exprVal a = getScalarVal =<< PEx.literal a
-instance Exprable T.Text  where expr = exprLiteral . scalar
+  exprVal = join . fmap getScalarVal . PEx.literal
+instance Exprable T.Text  where 
+  expr    = exprLiteral . scalar
+  exprVal = join . fmap getScalarVal . PEx.literal
+
 -- FUNC_CALL
-instance Exprable PFC.FunctionCall       where expr a = PB.defaultValue {PEx.type' = PET.FUNC_CALL , PEx.function_call = Just a}
--- OBJECT
-instance Exprable POE.ObjectExpr         where expr a = PB.defaultValue {PEx.type' = PET.OBJECT    , PEx.object        = Just a}
-instance Exprable [POFE.ObjectFieldExpr] where expr as = expr $ setObjectExpr as
+instance Exprable PFC.FunctionCall where 
+  expr a  = PB.defaultValue {PEx.type' = PET.FUNC_CALL , PEx.function_call = Just a}
+  exprVal = PEx.function_call 
+
+-- OBJECT 
+instance Exprable POE.ObjectExpr where 
+  expr a = PB.defaultValue {PEx.type' = PET.OBJECT    , PEx.object        = Just a}
+  exprVal = PEx.object
+
+-- ObjectFieldExpr -> OBJECT
+instance Exprable [POFE.ObjectFieldExpr] where 
+  expr as = expr $ setObjectExpr as
+  exprVal = fmap F.toList . fmap POE.fld . PEx.object
+
 -- ARRAY
-instance Exprable PAR.Array              where expr a = PB.defaultValue {PEx.type' = PET.ARRAY     , PEx.array         = Just a}
+instance Exprable PAR.Array where
+  expr a  = PB.defaultValue {PEx.type' = PET.ARRAY     , PEx.array         = Just a}
+  exprVal = PEx.array
 
 exprLiteral :: PS.Scalar -> PEx.Expr
 exprLiteral x = PB.defaultValue {PEx.type' = PET.LITERAL, PEx.literal = Just $ x}
@@ -532,14 +622,23 @@ exprColumnIdentifier colIdent = PB.defaultValue {PEx.type' = PET.IDENT, PEx.iden
 exprPlaceholder :: Int -> PEx.Expr
 exprPlaceholder pos = PB.defaultValue {PEx.type' = PET.PLACEHOLDER, PEx.position = Just $ fromIntegral pos }
 
+-- | 1st placeholder.
 ph1 = exprPlaceholder 1
+-- | 2nd placeholder.
 ph2 = exprPlaceholder 2
+-- | 3rd placeholder.
 ph3 = exprPlaceholder 3
+-- | 4th placeholder.
 ph4 = exprPlaceholder 4
+-- | 5th placeholder.
 ph5 = exprPlaceholder 5
+-- | 6th placeholder.
 ph6 = exprPlaceholder 6
+-- | 7th placeholder.
 ph7 = exprPlaceholder 7
+-- | 8th placeholder.
 ph8 = exprPlaceholder 8
+-- | 9th placeholder.
 ph9 = exprPlaceholder 9
 
 exprIdentifierName :: String -> PEx.Expr
@@ -727,66 +826,89 @@ mkScalarType                          = PB.defaultValue
 mkScalar                              :: PS.Scalar                             
 mkScalar                              = PB.defaultValue
 
-class Scalable x where
-  scalar         :: x         -> PS.Scalar -- Int, Int64, Word8, Word64, Double, Float, Bool, String
+-- | Make a Null.
+mkNullScalar :: PS.Scalar
+mkNullScalar = PB.defaultValue {PS.type' = PST.V_NULL}
+
+-- | Make an Scalar instance and Retrieve a value from Scalar.
+class Scalarable x where
+  -- | Make an Scalar instance.
+  scalar         :: x         -> PS.Scalar
+  -- | Retrieve a value from Scalar safely.
   getScalarVal   :: PS.Scalar -> Maybe x
+  -- | Retrieve a value from Scalar, an exception maybe occurs.
   getScalarVal'  :: (MonadIO m, MonadThrow m) => PS.Scalar -> m x
+  -- | Retrieve a value from Scalar unsafely.
   getScalarVal'' :: PS.Scalar -> x
   getScalarVal'' = M.fromJust . getScalarVal
 
-_getScalarVal' :: (MonadIO m, MonadThrow m) => PST.Type -> (PS.Scalar -> Maybe a) -> (a -> b) -> String -> PS.Scalar -> m b
+-- | internal use only (TODO hiding)
+_getScalarVal' :: (MonadIO m, MonadThrow m) 
+  => PST.Type 
+  -> (PS.Scalar -> Maybe a) 
+  -> (a -> b) 
+  -> String 
+  -> PS.Scalar 
+  -> m b
 _getScalarVal' t func trans info scl = 
     if PS.type' scl == t then
       case func scl of 
         Just x  -> return $ trans x 
         Nothing -> throwM $ XProtocolException $ info ++ " value is Nothing" 
     else
-      throwM $ XProtocolException $ "type of scalar value is not " ++ info ++ ", actually " ++ (show $ PS.type' scl) 
- 
-instance Scalable Int      where 
+      throwM $ XProtocolException $ F.concat ["type of scalar value is not ", info, ", actually ", show $ PS.type' scl] 
+
+instance Scalarable Int      where 
   scalar x                    = PB.defaultValue {PS.type' = PST.V_SINT  , PS.v_signed_int   = Just $ fromIntegral x}
   getScalarVal  PS.Scalar{..} = fromIntegral <$> v_signed_int
   getScalarVal' x = _getScalarVal' PST.V_SINT PS.v_signed_int fromIntegral "V_SINT" x
 
-instance Scalable I.Int64  where 
+instance Scalarable I.Int64  where 
   scalar x = PB.defaultValue {PS.type' = PST.V_SINT  , PS.v_signed_int   = Just x}
   getScalarVal PS.Scalar{..} = v_signed_int
   getScalarVal' x = _getScalarVal' PST.V_SINT PS.v_signed_int id "V_SINT" x
 
-instance Scalable W.Word8  where 
+instance Scalarable W.Word8  where 
   scalar x = PB.defaultValue {PS.type' = PST.V_UINT  , PS.v_unsigned_int = Just $ fromIntegral x}
   getScalarVal PS.Scalar{..} = fromIntegral <$> v_unsigned_int
   getScalarVal' x = _getScalarVal' PST.V_UINT PS.v_unsigned_int fromIntegral "V_UINT" x
 
-instance Scalable W.Word64 where
+instance Scalarable W.Word64 where
   scalar x = PB.defaultValue {PS.type' = PST.V_UINT  , PS.v_unsigned_int = Just x}
   getScalarVal PS.Scalar{..} = v_unsigned_int
   getScalarVal' x = _getScalarVal' PST.V_UINT PS.v_unsigned_int id "V_UINT" x
 
-instance Scalable Double   where
-  scalar x = PB.defaultValue {PS.type' = PST.V_DOUBLE, PS.v_double       = Just x               }
+instance Scalarable Double   where
+  scalar x = PB.defaultValue {PS.type' = PST.V_DOUBLE, PS.v_double       = Just x}
   getScalarVal PS.Scalar{..} = v_double
   getScalarVal' x = _getScalarVal' PST.V_DOUBLE PS.v_double id "V_DOUBLE" x
 
-instance Scalable Float    where
-  scalar x = PB.defaultValue {PS.type' = PST.V_FLOAT , PS.v_float        = Just x               }
+instance Scalarable Float    where
+  scalar x = PB.defaultValue {PS.type' = PST.V_FLOAT , PS.v_float        = Just x}
   getScalarVal PS.Scalar{..} = v_float
   getScalarVal' x = _getScalarVal' PST.V_FLOAT PS.v_float id "V_FLOAT" x
 
-instance Scalable Bool     where
-  scalar x = PB.defaultValue {PS.type' = PST.V_BOOL  , PS.v_bool         = Just x               }
+instance Scalarable Bool     where
+  scalar x = PB.defaultValue {PS.type' = PST.V_BOOL  , PS.v_bool         = Just x}
   getScalarVal PS.Scalar{..} = v_bool
   getScalarVal' x = _getScalarVal' PST.V_BOOL PS.v_bool id "V_BOOL" x
 
-instance Scalable String   where
-  scalar x = PB.defaultValue {PS.type' = PST.V_STRING, PS.v_string       = Just $ scalarString x      }
+instance Scalarable String   where
+  scalar x = PB.defaultValue {PS.type' = PST.V_STRING, PS.v_string       = Just $ scalarString x}
   getScalarVal PS.Scalar{..} = (T.unpack . TE.decodeUtf8 . BL.toStrict . PSS.value) <$> v_string
   getScalarVal' x = _getScalarVal' PST.V_STRING PS.v_string (T.unpack . TE.decodeUtf8 . BL.toStrict . PSS.value) "V_STRING" x
 
-instance Scalable T.Text   where
+instance Scalarable T.Text   where
   scalar x = PB.defaultValue {PS.type' = PST.V_STRING, PS.v_string       = Just $ scalarString (T.unpack x)}
   getScalarVal PS.Scalar{..} = (TE.decodeUtf8 . BL.toStrict . PSS.value) <$> v_string
   getScalarVal' x = _getScalarVal' PST.V_STRING PS.v_string (TE.decodeUtf8 . BL.toStrict . PSS.value) "V_STRING" x
+
+-- | Nothing to be converted to a Null Scalar.
+instance (Scalarable a) => Scalarable (Maybe a) where
+  scalar (Just x) = scalar x 
+  scalar Nothing  = mkNullScalar 
+  getScalarVal    = getScalarVal  --  TODO test. 
+  getScalarVal'   = getScalarVal' --  TODO test.
 
 mkServerMessagesType                  :: PSMT.Type                
 mkServerMessagesType                  = PB.defaultValue
@@ -847,7 +969,12 @@ mkUpdateOperationUpdateType           :: PUOUT.UpdateType
 mkUpdateOperationUpdateType           = PB.defaultValue
 
 {- UpdateOperation -}
-mkUpdateOperation :: PUOUT.UpdateType -> PCI.ColumnIdentifier -> PEx.Expr -> PUO.UpdateOperation
+-- | Make an UpdateOperation instance.
+mkUpdateOperation :: 
+     PUOUT.UpdateType       -- ^ type
+  -> PCI.ColumnIdentifier   -- ^ identifier
+  -> PEx.Expr               -- ^ Expr
+  -> PUO.UpdateOperation
 mkUpdateOperation ut iden ex = PUO.UpdateOperation {PUO.source = iden, PUO.operation = ut, PUO.value = Just ex} 
 
 mkUpdateOperationSet         = mkUpdateOperation PUOUT.SET             -- table only
@@ -858,11 +985,41 @@ mkUpdateOperationItemMerge   = mkUpdateOperation PUOUT.ITEM_MERGE
 mkUpdateOperationArrayInsert = mkUpdateOperation PUOUT.ARRAY_INSERT  
 mkUpdateOperationArrayAppend = mkUpdateOperation PUOUT.ARRAY_APPEND
 
-class    UpdateOperatable a        where 
-  updateItemReplace :: String -> a -> PUO.UpdateOperation -- Int, Word8, Double, Float, Bool, String , Text, Word64 , etc. TODO
+-- | Make an update item.
+class (Exprable a) => UpdateOperatable a where 
 
-instance UpdateOperatable Int      where updateItemReplace ident a = mkUpdateOperationItemReplace (columnIdentifierDocumentPahtItem [mkDocumentPathItem ident]) (expr a)
-instance UpdateOperatable String   where updateItemReplace ident a = mkUpdateOperationItemReplace (columnIdentifierDocumentPahtItem [mkDocumentPathItem ident]) (expr a)
+  updateSet                 :: String -> a -> PUO.UpdateOperation
+  updateSet         ident a  = mkUpdateOperationSet         (columnIdentifierDocumentPahtItem [mkDocumentPathItem ident]) (expr a)
+
+  updateItemRemove          :: String -> a -> PUO.UpdateOperation
+  updateItemRemove  ident a  = mkUpdateOperationItemRemove  (columnIdentifierDocumentPahtItem [mkDocumentPathItem ident]) (expr a)
+  
+  updateItemSet             :: String -> a -> PUO.UpdateOperation
+  updateItemSet     ident a  = mkUpdateOperationItemSet     (columnIdentifierDocumentPahtItem [mkDocumentPathItem ident]) (expr a)   
+
+  updateItemReplace         :: String -> a -> PUO.UpdateOperation
+  updateItemReplace ident a  = mkUpdateOperationItemReplace (columnIdentifierDocumentPahtItem [mkDocumentPathItem ident]) (expr a)
+
+  updateItemMerge           :: String -> a -> PUO.UpdateOperation
+  updateItemMerge   ident a = mkUpdateOperationItemMerge    (columnIdentifierDocumentPahtItem [mkDocumentPathItem ident]) (expr a)
+
+instance UpdateOperatable Int      
+instance UpdateOperatable Int64
+instance UpdateOperatable Word8
+instance UpdateOperatable Word64
+instance UpdateOperatable Double
+instance UpdateOperatable Float
+instance UpdateOperatable Bool
+instance UpdateOperatable String
+instance UpdateOperatable Text
+
+-- | Make an update array insert operation.
+updateArrayInsert :: String -> PAR.Array -> PUO.UpdateOperation
+updateArrayInsert ident arr = mkUpdateOperationArrayInsert (columnIdentifierDocumentPahtItem [mkDocumentPathItem ident]) (expr arr)
+
+-- | Make an update array append operation.
+updateArrayAppend :: String -> PAR.Array -> PUO.UpdateOperation
+updateArrayAppend ident arr = mkUpdateOperationArrayAppend (columnIdentifierDocumentPahtItem [mkDocumentPathItem ident]) (expr arr)
 
 mkViewAlgorithm                       :: PVA.ViewAlgorithm                      
 mkViewAlgorithm                       = PB.defaultValue
@@ -876,15 +1033,15 @@ mkWarning                             :: PW.Warning
 mkWarning                             = PB.defaultValue
 
 --     CURRENT_SCHEMA = 1;
-getCurrentSchema :: (MonadIO m, MonadThrow m, Scalable a)  => PSSC.SessionStateChanged -> m a
+getCurrentSchema :: (MonadIO m, MonadThrow m, Scalarable a)  => PSSC.SessionStateChanged -> m a
 getCurrentSchema = getSessionStateChangedVal PSSCP.CURRENT_SCHEMA "CURRENT_SCHEMA"
 
 --     ACCOUNT_EXPIRED = 2;
-getAccountExpired :: (MonadIO m, MonadThrow m, Scalable a)  => PSSC.SessionStateChanged -> m a
+getAccountExpired :: (MonadIO m, MonadThrow m, Scalarable a)  => PSSC.SessionStateChanged -> m a
 getAccountExpired = getSessionStateChangedVal PSSCP.ACCOUNT_EXPIRED "ACCOUNT_EXPIRED"
 
 --     GENERATED_INSERT_ID = 3;
-getGeneratedInsertId :: (MonadIO m, MonadThrow m, Scalable a)  => PSSC.SessionStateChanged -> m a
+getGeneratedInsertId :: (MonadIO m, MonadThrow m, Scalarable a)  => PSSC.SessionStateChanged -> m a
 getGeneratedInsertId = getSessionStateChangedVal PSSCP.GENERATED_INSERT_ID "GENERATED_INSERT_ID"
 
 --     ROWS_AFFECTED = 4;
@@ -892,30 +1049,30 @@ getRowsAffected :: (MonadIO m, MonadThrow m)  => PSSC.SessionStateChanged -> m W
 getRowsAffected = getSessionStateChangedVal PSSCP.ROWS_AFFECTED "ROWS_AFFECTED"
 
 --     ROWS_FOUND = 5;
-getRowsFound :: (MonadIO m, MonadThrow m, Scalable a)  => PSSC.SessionStateChanged -> m a
+getRowsFound :: (MonadIO m, MonadThrow m, Scalarable a)  => PSSC.SessionStateChanged -> m a
 getRowsFound = getSessionStateChangedVal PSSCP.ROWS_FOUND "ROWS_FOUND"
 
 --     ROWS_MATCHED = 6;
-getRowsMatched :: (MonadIO m, MonadThrow m, Scalable a)  => PSSC.SessionStateChanged -> m a
+getRowsMatched :: (MonadIO m, MonadThrow m, Scalarable a)  => PSSC.SessionStateChanged -> m a
 getRowsMatched = getSessionStateChangedVal PSSCP.ROWS_MATCHED "ROWS_MATCHED"
 
 --     TRX_COMMITTED = 7;
-getTrxCommited :: (MonadIO m, MonadThrow m, Scalable a)  => PSSC.SessionStateChanged -> m a
+getTrxCommited :: (MonadIO m, MonadThrow m, Scalarable a)  => PSSC.SessionStateChanged -> m a
 getTrxCommited = getSessionStateChangedVal PSSCP.TRX_COMMITTED "TRX_COMMITTED"
 
 --     TRX_ROLLEDBACK = 9;
-getTrxRolldback :: (MonadIO m, MonadThrow m, Scalable a)  => PSSC.SessionStateChanged -> m a
+getTrxRolldback :: (MonadIO m, MonadThrow m, Scalarable a)  => PSSC.SessionStateChanged -> m a
 getTrxRolldback = getSessionStateChangedVal PSSCP.TRX_ROLLEDBACK "TRX_ROLLEDBACK"
 
 --     PRODUCED_MESSAGE = 10;
-getProducedMessage :: (MonadIO m, MonadThrow m, Scalable a)  => PSSC.SessionStateChanged -> m a
+getProducedMessage :: (MonadIO m, MonadThrow m, Scalarable a)  => PSSC.SessionStateChanged -> m a
 getProducedMessage = getSessionStateChangedVal PSSCP.PRODUCED_MESSAGE "PRODUCED_MESSAGE"
 
 --     CLIENT_ID_ASSIGNED = 11;
 getClientId :: (MonadIO m, MonadThrow m) => PSSC.SessionStateChanged -> m W.Word64
 getClientId = getSessionStateChangedVal PSSCP.CLIENT_ID_ASSIGNED "CLIENT_ID_ASSIGNED"
 
-getSessionStateChangedVal :: (MonadIO m, MonadThrow m, Scalable a) => PSSCP.Parameter -> String -> PSSC.SessionStateChanged -> m a
+getSessionStateChangedVal :: (MonadIO m, MonadThrow m, Scalarable a) => PSSCP.Parameter -> String -> PSSC.SessionStateChanged -> m a
 getSessionStateChangedVal p info ssc = do
   debug ssc
   if PSSC.param ssc == p then 
@@ -925,22 +1082,31 @@ getSessionStateChangedVal p info ssc = do
   else
     throwM $ XProtocolException $ "param is not " ++ info ++ ", but " ++ (show $ PSSC.param ssc) 
 
-
---
--- Helper functions
---
+-- | Server message NO : ok = 0
 s_ok                                   =  0 :: Int
+-- | Server message NO : error = 1
 s_error                                =  1 :: Int
+-- | Server message NO : conn_capabilities = 2
 s_conn_capabilities                    =  2 :: Int
+-- | Server message NO : sess_authenticate_continue = 3
 s_sess_authenticate_continue           =  3 :: Int
+-- | Server message NO : sess_authenticate_ok =4
 s_sess_authenticate_ok                 =  4 :: Int
+-- | Server message NO : notice = 11
 s_notice                               = 11 :: Int
+-- | Server message NO : resultset_column_meta_data = 12
 s_resultset_column_meta_data           = 12 :: Int
+-- | Server message NO : resultset_row = 13
 s_resultset_row                        = 13 :: Int
+-- | Server message NO : resultset_fetch_done = 14
 s_resultset_fetch_done                 = 14 :: Int
+-- | Server message NO : resultset_fetch_suspended = 15
 s_resultset_fetch_suspended            = 15 :: Int
+-- | Server message NO : resultset_fetch_done_more_resultsets = 16
 s_resultset_fetch_done_more_resultsets = 16 :: Int
+-- | Server message NO : resultset_fetch_done_more_out_params = 17
 s_sql_stmt_execute_ok                  = 17 :: Int
+-- | Server message NO : resultset_fetch_done_more_out_params = 18 
 s_resultset_fetch_done_more_out_params = 18 :: Int
  
 getClientMsgTypeNo ::  (Typeable msg, Show msg) => msg -> Int
@@ -950,6 +1116,7 @@ getClientMsgTypeNo msg =
     Just (a,b,c) -> a
   where found = Data.List.find (\(a, b, c) -> c == typeOf msg) clientMessageMap 
 
+-- | Mapping between a message type number and an object.
 clientMessageMap :: [(Int, PCMT.Type, TypeRep)]
 clientMessageMap =
    [
@@ -976,9 +1143,11 @@ clientMessageMap =
 --
 -- for debug purpose 
 --
+-- | Serialize an object to a file.
 writeObj :: (PBW.Wire a, PBR.ReflectDescriptor a) => FilePath -> a -> IO ()
 writeObj path obj = BL.writeFile path $ PBW.messagePut obj
 
+-- | Deserialize a file to an object.
 readObj :: (MonadIO m, MonadThrow m, PBW.Wire a, PBR.ReflectDescriptor a, PBT.TextMsg a, Typeable a) => FilePath -> m a
 readObj path = do
   bin <- liftIO  $ B.readFile path 
