@@ -184,14 +184,14 @@ example01 = do
   
   select1 node
 
---  select2 node
---
---  select3 node
---
---  select4 node
---
---  -- metadata
---  select11 node
+  select2 node
+
+  select3 node
+
+  select4 node
+
+  -- metadata
+  select11 node
 
   closeNodeSession node
   isCon <- isSocketConnected node
