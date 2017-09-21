@@ -37,6 +37,7 @@ module DataBase.MySQLX.CRUD
   ,setColumns          -- projection
   ,setCriteria         -- criteria
   ,setTypedRow         -- row
+  ,setTypedRow'        -- row
   ,setArgs             -- args
   ,setLimit            -- limit
   ,setOrder            -- order
@@ -101,6 +102,9 @@ import DataBase.MySQLX.Model          as XM
 import DataBase.MySQLX.NodeSession 
 import DataBase.MySQLX.Util
 
+-- -----------------------------------------------------------------------------
+-- 
+-- -----------------------------------------------------------------------------
 
 -- | CRUD operations which need a Collection 
 class HasCollection a where 
@@ -178,13 +182,17 @@ createInsert col model projs rows args = PB.defaultValue
     `setTypedRow`   rows
     `setArgs`       args 
 
--- | Set columns to a Insert record
+-- | Set columns to a Insert record.
 setColumns :: PI.Insert -> [PCol.Column] -> PI.Insert
 setColumns inst clms = inst {PI.projection = Seq.fromList clms} 
 
--- | Set typed rows to a Insert record
+-- | Set typed rows to a Insert record.
 setTypedRow :: PI.Insert -> [PITR.TypedRow] -> PI.Insert
 setTypedRow inst rows = inst {PI.row = Seq.fromList rows} 
+
+-- | Set typed rows to a Insert record from Exprs.
+setTypedRow' :: PI.Insert -> [PEx.Expr] -> PI.Insert
+setTypedRow' inst exprs = inst {PI.row = Seq.fromList [mkExpr2TypedRow exprs]} 
 
 -- | Delete
 createDelete :: PCll.Collection -- ^ Collection 
