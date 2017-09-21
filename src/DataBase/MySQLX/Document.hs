@@ -86,8 +86,8 @@ _doCollection operation schema table nodeSess = do
                  [
                    XM.any $ setObject 
                      [
-                       setObjectField "schema" $ XM.any schema
-                      ,setObjectField "name"   $ XM.any table 
+                       mkObjectField "schema" $ XM.any schema
+                      ,mkObjectField "name"   $ XM.any table 
                      ]
                  ]
 

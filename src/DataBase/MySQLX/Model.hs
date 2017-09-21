@@ -613,8 +613,13 @@ instance Exprable PAR.Array where
   expr a  = PB.defaultValue {PEx.type' = PET.ARRAY     , PEx.array         = Just a}
   exprVal = PEx.array
 
+-- | Make a type LITERAL Expr.
 exprLiteral :: PS.Scalar -> PEx.Expr
 exprLiteral x = PB.defaultValue {PEx.type' = PET.LITERAL, PEx.literal = Just $ x}
+
+-- | Make a Null Expr.
+mkNullExpr :: PEx.Expr
+mkNullExpr = exprLiteral mkNullScalar 
 
 exprColumnIdentifier :: PCI.ColumnIdentifier -> PEx.Expr
 exprColumnIdentifier colIdent = PB.defaultValue {PEx.type' = PET.IDENT, PEx.identifier = Just $ colIdent} 
@@ -661,7 +666,11 @@ mkFrame                               :: PFr.Frame
 mkFrame                               = PB.defaultValue
 
 {- FunctionCall -}
-mkFunctionCall :: String -> [PEx.Expr] -> PFC.FunctionCall
+-- | Make a function call instance.
+mkFunctionCall :: 
+     String             -- ^ function name
+  -> [PEx.Expr]         -- ^ parameters
+  -> PFC.FunctionCall
 mkFunctionCall name params = PFC.FunctionCall (mkIdentifier' name) (Seq.fromList params) 
 
 {- Identifier -}
@@ -675,9 +684,11 @@ mkIdentifier' x = PI.Identifier (PBH.uFromString x) Nothing
 mkTypedRow                            :: PITR.TypedRow                    
 mkTypedRow                            = PB.defaultValue
 
+-- | make a TypedRow instance which has multiple Exprs.
 mkExpr2TypedRow :: [PEx.Expr] -> PITR.TypedRow
 mkExpr2TypedRow fields = PITR.TypedRow $ Seq.fromList fields
 
+-- | make a TypedRow instance which has one Expr.
 mkExpr2TypedRow' :: PEx.Expr -> PITR.TypedRow
 mkExpr2TypedRow' field = PITR.TypedRow $ Seq.singleton field
 
@@ -702,11 +713,12 @@ mkLimit                               = PB.defaultValue
 mkModifyView                          :: PMV.ModifyView                         
 mkModifyView                          = PB.defaultValue
 {- ObjectField -}
-mkObjectField                         :: POF.ObjectField                 
-mkObjectField                         = PB.defaultValue
+mkObjectField :: String -> PA.Any -> POF.ObjectField
+mkObjectField k a = POF.ObjectField {POF.key = (PBH.uFromString k), POF.value = a}
 
-setObjectField :: String -> PA.Any -> POF.ObjectField
-setObjectField k a = POF.ObjectField {POF.key = (PBH.uFromString k), value = a}
+{- ObjectFieldExpr -}
+mkObjectFieldExpr :: String -> PEx.Expr -> POFE.ObjectFieldExpr
+mkObjectFieldExpr k a = POFE.ObjectFieldExpr {POFE.key = (PBH.uFromString k), POFE.value = a}
 
 {- Object -}
 mkObject                              :: PO.Object                             
