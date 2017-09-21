@@ -18,6 +18,7 @@ module DataBase.MySQLX.Util
   ,insertUUID
   ,insertUUIDIO
   ,getPasswordHash
+  ,removeUnderscores
   ,debug 
   ) where
 
@@ -108,9 +109,11 @@ insertUUID json uuid =
 insertUUIDIO :: String -> IO String
 insertUUIDIO json = do
   uuid <- nextRandom
-  return $ insertUUID json $ removeUnderscore $ toString uuid
-  where
-    removeUnderscore x = foldr (\x a -> if x == '-' then a else x : a) [] x
+  return $ insertUUID json $ removeUnderscores $ toString uuid
+
+-- | remove all unserscores in a String  
+removeUnderscores :: String -> String
+removeUnderscores x = foldr (\x a -> if x == '-' then a else x : a) [] x
 
 --
 -- https://stackoverflow.com/questions/10099921/efficiently-turn-a-bytestring-into-a-hex-representation?answertab=active#tab-top
