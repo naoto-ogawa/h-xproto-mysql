@@ -45,7 +45,7 @@ example2_01 = do
 
 
 --
--- Collection CRUD Insert
+-- Collection CRUD JSON Insert
 --
 example2_02 :: IO ()
 example2_02 = do
@@ -249,5 +249,3 @@ example2_10 = do
   closeNodeSession nodeSess
   putStrLn "end   example2_10"
 
---  print "******************************"
---  print "******************************"
