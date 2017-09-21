@@ -30,19 +30,19 @@ import DataBase.MySQLX.Util
 import Example.Example03_data
 
 --
--- Select interfaces
---
+-- Select interface from a row to a record object by Template Haskell.
+-- 
 
 example03_1 :: IO ()
 example03_1 = do
-  putStrLn "start example01"
+  putStrLn "start example03_1"
   node <- openNodeSession $ defaultNodeSesssionInfo {database = "world_x", user = "root", password="root"}
   debug $ "node=" ++ (show node)
   
   select1 node
 
   closeNodeSession node
-  putStrLn "end example01"
+  putStrLn "end example03_1"
 
 select1 :: NodeSession -> IO () 
 select1 node = do
