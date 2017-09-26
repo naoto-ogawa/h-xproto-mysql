@@ -63,9 +63,9 @@ import qualified Com.Mysql.Cj.Mysqlx.Protobuf.AuthenticateContinue              
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Ok                                 as POk
 
 -- my library
+import DataBase.MySQLX.Exception
 import DataBase.MySQLX.Model
 import DataBase.MySQLX.Util 
-import DataBase.MySQLX.Exception
 
 -- -----------------------------------------------------------------------------
 -- 
@@ -120,19 +120,18 @@ openNodeSession sessionInfo = do
   (t, msg):xs <- runReaderT (_auth sessionInfo) session
   case t of 
     11 -> do                                             -- TODO
-      liftIO $ print "success"
+      debug "success"
       frm <- getFrame msg
-      -- liftIO $ print frm
       case PFr.payload frm of
         Just x  -> do 
           changed <- getSessionStateChanged $ BL.toStrict x
-          liftIO $ print changed
+          debug changed
           ok <- mkAuthenticateOk $ snd $ head xs 
-          liftIO $ print ok 
+          debug ok 
           id <- getClientId changed
           debug $ "NodeSession is opend; clientId =" ++ (show id)
           return session {clientId = id} 
-        Nothing -> throwM $ XProtocolException "Payload is Nothing" -- liftIO $ print "nothing"
+        Nothing -> throwM $ XProtocolException "Payload is Nothing"
     1  -> do                                            -- TODO
       err <- getError msg
       throwM $ XProtocolError err
@@ -279,7 +278,7 @@ getOneMessageR = do
 readMessages :: (MonadIO m) => NodeSession -> m [Message]
 readMessages NodeSession{..} = do
    len <- runReaderT readMsgLengthR _socket
-   liftIO $ print $ "1st length =" ++ (show $ getIntFromLE len)
+   debug $ "1st length =" ++ (show $ getIntFromLE len)
    ret <- runReaderT (readAllMsgR (fromIntegral $ getIntFromLE len)) _socket
    return ret
 
