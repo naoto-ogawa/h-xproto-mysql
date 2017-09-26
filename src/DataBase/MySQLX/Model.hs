@@ -213,6 +213,18 @@ type  local global   payload
 getFrame                               :: (MonadThrow m) => B.ByteString -> m PFr.Frame
 getFrame                               = getMessage 
 
+-- | Warning Frame Type 
+frame_warning :: W.Word32
+frame_warning = 1 
+
+-- | Session Variable Chagend Frame Type 
+frame_session_variable_changed :: W.Word32
+frame_session_variable_changed = 2
+
+-- | Session State Chagend Frame Type 
+frame_session_state_changed :: W.Word32
+frame_session_state_changed = 3
+
 getFramePayload :: (MonadThrow m) => PFr.Frame -> m B.ByteString
 getFramePayload frame = do 
   case PFr.payload frame of
@@ -302,6 +314,13 @@ getUpdateOperation                     = getMessage
 -- getViewSqlSecurity                     = getMessage
 -- mkWarning.Level                       :: (MonadThrow m) => B.ByteString -> m PWL.Warning.Level                      
 -- mkWarning.Level                       = getMessage
+
+{-
+data Warning = Warning{level :: !(P'.Maybe Com.Mysql.Cj.Mysqlx.Protobuf.Warning.Level), code :: !(P'.Word32), msg :: !(P'.Utf8)}
+data Level = NOTE | WARNING | ERROR
+-}
+
+-- | Make a Warning instance from ByteString.
 getWarning                             :: (MonadThrow m) => B.ByteString -> m PW.Warning                            
 getWarning                             = getMessage
 
@@ -559,7 +578,7 @@ class Exprable a where
   expr    :: a -> PEx.Expr 
   -- | Retrieve a value from Expr safely.
   exprVal :: PEx.Expr -> Maybe a
-  exprVal = undefined      -- TODO impiementations
+  exprVal = error "not implmented. Submit an issue." -- undefined      -- TODO impiementations
   -- | Retrieve a value from Expr.
   exprVal' :: PEx.Expr -> a
   exprVal' = M.fromJust . exprVal 
@@ -736,14 +755,53 @@ setObjectExpr xs = POE.ObjectExpr $ Seq.fromList xs
 
 mkOk                                  :: POk.Ok                                 
 mkOk                                  = PB.defaultValue
-mkOpenConditionOperation              :: POCCO.ConditionOperation  
-mkOpenConditionOperation              = PB.defaultValue
+
+
+-- mkOpenConditionOperation              :: POCCO.ConditionOperation  
+-- mkOpenConditionOperation              = PB.defaultValue
 mkCondition                           :: POC.Condition                     
 mkCondition                           = PB.defaultValue
-mkOpenCtxOperation                    :: POCtx.CtxOperation                  
-mkOpenCtxOperation                    = PB.defaultValue
+
+{-
+see https://github.com/mysql/mysql-server/blob/5.7/rapid/plugin/x/src/expect.cc
+-}
+
+-- | Make Condition opSet Set, if not set or overwrite, if set.
+mkCondtinonOpSet :: POC.Condition -> POC.Condition
+mkCondtinonOpSet condition = condition {POC.op = Just $ POCCO.EXPECT_OP_SET}  
+
+-- | Unset the condition.
+mkCondtinonOpUnset :: POC.Condition -> POC.Condition
+mkCondtinonOpUnset condition = condition {POC.op = Just $ POCCO.EXPECT_OP_UNSET}  
+
+-- | Make NO_ERROR Condition.
+mkConditionNoError :: POC.Condition
+mkConditionNoError = PB.defaultValue {POC.condition_key = condition_no_error}
+
+condition_no_error               = 1 :: Word32
+condition_schema_version         = 2 :: Word32
+condition_gtid_executed_contains = 3 :: Word32
+condition_gtid_wait_less_than_ms = 4 :: Word32
+
+-- mkOpenCtxOperation                    :: POCtx.CtxOperation                  
+-- mkOpenCtxOperation                    = PB.defaultValue
+
+{-
+data Open = Open{op :: !(P'.Maybe CtxOperation), cond :: !(P'.Seq Condition)}
+data CtxOperation = EXPECT_CTX_COPY_PREV | EXPECT_CTX_EMPTY
+-}
 mkOpen                                :: POp.Open                               
 mkOpen                                = PB.defaultValue
+
+-- | Expectation
+mkExpectCtxCopyPrev :: POp.Open 
+mkExpectCtxCopyPrev = POp.Open (Just POCtx.EXPECT_CTX_COPY_PREV) Seq.empty
+
+-- | No Error Expectation
+mkExpectNoError :: POp.Open
+mkExpectNoError = POp.Open (Just POCtx.EXPECT_CTX_EMPTY) (Seq.singleton mkConditionNoError) 
+
+
 
 {-Operator -}
 --   Unary                                                  TODO 
@@ -1160,6 +1218,44 @@ writeObj :: (PBW.Wire a, PBR.ReflectDescriptor a) => FilePath -> a -> IO ()
 writeObj path obj = BL.writeFile path $ PBW.messagePut obj
 
 -- | Deserialize a file to an object.
+--
+-- Example
+--
+--  >>> let x = readObj "memo/dump_java_insert_prepared_type_timestamp.bin" :: IO StmtExecute
+--  >>> import Text.Pretty.Simple
+--  >>> :t pPrint
+-- pPrint :: (MonadIO m, Show a) => a -> m ()
+--  >>> x >>= pPrint
+-- StmtExecute
+--     { namespace = Just "sql"
+--     , stmt = "insert into data_type_timestamp values (?);"
+--     , args = fromList
+--         [ Any
+--             { type' = SCALAR
+--             , scalar = Just
+--                 ( Scalar
+--                     { type' = V_STRING
+--                     , v_signed_int = Nothing
+--                     , v_unsigned_int = Nothing
+--                     , v_octets = Nothing
+--                     , v_double = Nothing
+--                     , v_float = Nothing
+--                     , v_bool = Nothing
+--                     , v_string = Just
+--                         ( String
+--                             { value = "2017-09-17T12:34:56.0"
+--                             , collation = Nothing
+--                             }
+--                         )
+--                     }
+--                 )
+--             , obj = Nothing
+--             , array = Nothing
+--             }
+--         ]
+--     , compact_metadata = Just False
+--     }
+--  >>>
 readObj :: (MonadIO m, MonadThrow m, PBW.Wire a, PBR.ReflectDescriptor a, PBT.TextMsg a, Typeable a) => FilePath -> m a
 readObj path = do
   bin <- liftIO  $ B.readFile path 
