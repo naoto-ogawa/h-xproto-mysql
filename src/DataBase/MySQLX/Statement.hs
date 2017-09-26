@@ -9,6 +9,8 @@ portability :
 -}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE RecordWildCards      #-}
 
 module DataBase.MySQLX.Statement 
   (
@@ -27,10 +29,13 @@ module DataBase.MySQLX.Statement
    -- ** ResultSet MetaData Operation
   ,getColMetaType
   ,getColMetaName
+   -- ** Convenience functions
+  ,execSimpleTx
   ) where
 
 -- general, standard library
-import Control.Exception.Safe (Exception, MonadThrow, SomeException, throwM)
+import Control.Exception      (SomeException)
+import Control.Exception.Safe 
 import Control.Monad
 import Control.Monad.Trans.Reader
 import Control.Monad.IO.Class
@@ -51,6 +56,7 @@ import qualified Com.Mysql.Cj.Mysqlx.Protobuf.ColumnMetaData                    
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Frame                              as PFr
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Row                                as PR
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.SessionStateChanged                as PSSC
+import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Warning                            as PW
 
 -- protocolbuffers
 import qualified Text.ProtocolBuffers.WireMessage    as PBW
@@ -60,6 +66,7 @@ import qualified Text.ProtocolBuffers                as PB
 import DataBase.MySQLX.Exception
 import DataBase.MySQLX.NodeSession 
 import DataBase.MySQLX.Model
+import DataBase.MySQLX.Util
 
 -- -----------------------------------------------------------------------------
 -- 
@@ -192,21 +199,115 @@ updateRawSql sql nodeSess = updateSql sql [] nodeSess
 -- TODO to implement generated_insert_id 
 
 -- | Modify Operations (Insert / Update / Delete / Others)
+-- Even if a server message is a OK, XProtocolWarn are thrown in case of a Warning.
+--
 updateSql :: (MonadIO m, MonadThrow m) 
           => String       -- ^ SQL string
           -> [PA.Any]     -- ^ parameters
           -> NodeSession  -- ^ Node session
           -> m W.Word64   -- ^ result (# of affected rows)
 updateSql sql param nodeSess = do
+  (warn, rows) <- updateSql' sql param nodeSess
+  case warn of
+    Nothing -> return rows
+    Just w  -> throwM $ XProtocolWarn w
+
+-- | Modify Operations (Insert / Update / Delete / Others)
+--
+-- Even if we have OK message, we may have a warning.
+--
+-- example
+-- @
+-- [
+--    Frame { type' = 1
+--          , scope = Just LOCAL
+--          , payload = Just "\b\SOH\DLE\140\n\SUBMIncorrect date value: '2023-09-17T19:23:54.000' for column 'my_date' at row 1"}
+--   ,Frame { type' = 3
+--          , scope = Just LOCAL
+--          , payload = Just "\b\EOT\DC2\EOT\b\STX\CAN\SOH"
+--          }
+--  ] 
+-- @
+-- 
+-- the above Frames are encoded as follows :
+-- @
+-- Warning {level = Just NOTE, code = 1292, msg = "Incorrect date value: '2023-09-17T19:23:54.000' for column 'my_date' at row 1"}
+-- SessionStateChanged {param = ROWS_AFFECTED, value = Just (Scalar {type' = V_UINT, v_signed_int = Nothing, v_unsigned_int = Just 1, v_octets = Nothing, v_double = Nothing, v_float = Nothing, v_bool = Nothing, v_string = Nothing})}
+-- @
+-- 
+updateSql' :: (MonadIO m, MonadThrow m) 
+          => String                -- ^ SQL string
+          -> [PA.Any]              -- ^ parameters
+          -> NodeSession           -- ^ Node session
+          -> m (Maybe PW.Warning, W.Word64)  -- ^ A pare of a message and result (# of affected rows)
+updateSql' sql param nodeSess = do
   runReaderT (_sendStmtExecuteSql sql param) nodeSess
   ret@(x:xs) <- runReaderT readMessagesR nodeSess   -- [(Int, B.ByteString)]
   if fst x == s_error then do
     msg <- getError $ snd x
     throwM $ XProtocolError msg
   else do 
-    frm <- (getFrame . snd ) $ head $ filter (\(t, b) -> t == s_notice) ret  -- Frame
-    ssc <- getPayloadSessionStateChanged frm
-    getRowsAffected ssc
+    frms <- sequence $ map (\(t,b) -> getFrame b) $ filter (\(t, b) -> t == s_notice) ret -- [Frame]
+    let warn = safeHead $ filterWarnings frame_warning frms >>= getPayloadWarning
+    ssc  <- getPayloadSessionStateChanged $ head $ filterWarnings frame_session_state_changed frms
+    rows <- getRowsAffected ssc
+    return (warn, rows)
+  where 
+    filterWarnings = \t frames -> filter (\PFr.Frame{..} -> type' == t) frames
+
+
+-- -----------------------------------------------------------------------------
+-- Convenience functions
+-- -----------------------------------------------------------------------------
+-- | Execute database operations with transaction.
+execSimpleTx :: String                 -- ^ Database
+             -> String                 -- ^ User
+             -> String                 -- ^ Password
+             -> (NodeSession -> IO ()) -- ^ some database operatoins 
+             -> IO ()
+execSimpleTx database user pw func = 
+  bracket
+    (do -- first
+       nodeSess <- openNodeSession $ defaultNodeSesssionInfo {
+                                       database = database
+                                     , user     = user
+                                     , password = pw
+                                     }
+       begenTrxNodeSession nodeSess
+       return nodeSess
+    )
+    (\nodeSess -> do -- last
+       closeNodeSession  nodeSess
+       return nodeSess
+    )
+    (\nodeSess -> do -- in between
+         func nodeSess
+         commitNodeSession nodeSess
+         return ()
+       `catches` 
+         [
+           handleError (\ex -> do
+              print $ "catching XProtocolError : " ++ (show ex) 
+              rollbackNodeSession nodeSess
+              return ()
+           )
+         , handleWarn  (\ex -> do
+              print $ "catching XProtocolWarn : " ++ (show ex) 
+              rollbackNodeSession nodeSess
+              return ()
+           )
+         , handleException $ (\ex -> do
+             print $ "catching XProtocolException : " ++ (show ex) 
+             rollbackNodeSession nodeSess
+             return ()
+           )
+         , Handler $ (\(ex :: SomeException) -> do
+             print $ "SomeException : " ++ (show ex)
+             rollbackNodeSession nodeSess
+             return ()
+           )
+         ]
+    )
 
 -- -----------------------------------------------------------------------------
 -- internal use 
