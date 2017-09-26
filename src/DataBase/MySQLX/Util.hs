@@ -10,7 +10,8 @@ portability :
 
 module DataBase.MySQLX.Util 
   (
-   toHex
+   safeHead
+  ,toHex
   ,toHex'
   ,getIntFromLE
   ,putMessageLengthLE
@@ -48,6 +49,9 @@ import Foreign.Storable
 -- -----------------------------------------------------------------------------
 -- 
 -- -----------------------------------------------------------------------------
+
+-- | Safehead
+safeHead = \xs -> if Prelude.null xs then Nothing else Just $ head xs
 
 -- | get a Int32 from little endian ByteString
 getIntFromLE :: B.ByteString -> I.Int32 
@@ -156,5 +160,6 @@ toHex bs
 -- | debug message IO
 debug :: (MonadIO m, Show a) => a -> m ()
 debug = liftIO . print
+-- debug = return $ return () --liftIO . print
 
 
