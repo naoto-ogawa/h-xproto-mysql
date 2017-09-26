@@ -15,7 +15,8 @@ Exceptions
 module DataBase.MySQLX.Exception 
   (
     -- * Exception
-     XProtocolError(..)
+     XProtocolError    (..)
+  ,  XProtocolWarn     (..)
   ,  XProtocolException(..)
     -- * Helper functions
   , isError
@@ -24,8 +25,14 @@ module DataBase.MySQLX.Exception
   , getErrorSQLState
   , getErrorMsg
   , getExceptionMsg
+  , isWarnNote
+  , isWarnWarning
+  , isWarnError
+  , getWarnMsg
+  , getWarnCode
     -- * handler functions
   , handleError
+  , handleWarn
   , handleException
   ) where
 
@@ -38,6 +45,8 @@ import qualified Data.ByteString.Lazy as BL
 -- generated library
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Error                              as PE 
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Error.Severity                     as PES 
+import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Warning.Level                      as PWL
+import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Warning                            as PW
 
 -- protocol buffer library
 import qualified Text.ProtocolBuffers                as PB
@@ -51,15 +60,17 @@ import qualified Text.ProtocolBuffers.Reflections    as PBR
 -- 
 -- -----------------------------------------------------------------------------
 
+-- -----------------------------------------------------------------------------
+-- XProtocol Error
+
 -- | An error sent by X Protocol
 data  XProtocolError = XProtocolError PE.Error 
   deriving (Typeable, Show)
 instance Exception XProtocolError
 
--- | An exception in this library
-data  XProtocolException = XProtocolException String  
-  deriving (Typeable, Show)
-instance Exception XProtocolException
+-- | Make a handler of XProtocolError
+handleError :: (XProtocolError -> m a) -> Handler m a 
+handleError = Handler 
 
 -- | check if severity of X Protocol Error is ERROR.
 isError :: XProtocolError -> Bool
@@ -91,11 +102,54 @@ getErrorMsg (XProtocolError PE.Error{..}) = PBH.uToString msg
 getExceptionMsg :: XProtocolException -> String
 getExceptionMsg (XProtocolException msg) = msg
 
--- | Make a handler of XProtocolError
-handleError :: (XProtocolError -> m a) -> Handler m a 
-handleError = Handler 
+-- -----------------------------------------------------------------------------
+-- XProtocol Warn 
+
+-- | A warning sent by X Protocol
+data  XProtocolWarn = XProtocolWarn PW.Warning
+  deriving (Typeable, Show)
+instance Exception XProtocolWarn
+
+-- | Make a handler of XProtocolWarn
+handleWarn :: (XProtocolWarn -> m a) -> Handler m a 
+handleWarn = Handler 
+
+-- | If Warning is Note or not
+isWarnNote :: PW.Warning -> Bool
+isWarnNote PW.Warning{..} = case level of 
+  Just x  -> x == PWL.NOTE
+  Nothing -> False
+
+-- | If Warning is Warning or not
+isWarnWarning :: PW.Warning -> Bool
+isWarnWarning PW.Warning{..} = case level of
+  Just x  -> x == PWL.WARNING
+  Nothing -> False
+
+-- | If Warning is Error or not
+isWarnError :: PW.Warning -> Bool
+isWarnError PW.Warning{..} =  case level of
+  Just x  -> x == PWL.ERROR
+  Nothing -> False
+
+-- | Get a message from Warning instance
+getWarnMsg :: PW.Warning -> String
+getWarnMsg PW.Warning{..} = PBH.uToString msg
+
+-- | Get a code from Warning instance
+getWarnCode :: PW.Warning -> Word32 
+getWarnCode = PW.code
+
+-- -----------------------------------------------------------------------------
+-- library exceptin 
+
+-- | An exception in this library
+data  XProtocolException = XProtocolException String  
+  deriving (Typeable, Show)
+instance Exception XProtocolException
 
 -- | Make a handler of XProtocolError
 handleException :: (XProtocolException -> m a) -> Handler m a 
 handleException = Handler 
+
 
