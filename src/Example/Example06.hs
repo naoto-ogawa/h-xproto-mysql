@@ -5,7 +5,8 @@ module Example.Example06 where
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax
 
-import Control.Exception.Safe (Exception, MonadThrow, SomeException, throwM, bracket, catch)
+import           Control.Exception (SomeException)
+import           Control.Exception.Safe
 import qualified Data.Aeson           as JSON 
 import qualified Data.ByteString      as B
 import qualified Data.Binary          as Bin
@@ -13,8 +14,9 @@ import qualified Data.Binary.Get      as BinG
 import qualified Data.Binary.Strict.BitGet as SBinG
 import qualified Data.ByteString.Lazy as BL 
 import qualified Data.Int             as I
-import Data.Kind           
+import           Data.Kind           
 import qualified Data.Sequence        as Seq
+import           Data.Time
 import qualified Data.Text            as T
 import qualified Data.Text.Encoding   as TE
 import qualified Data.Word            as W
@@ -32,6 +34,7 @@ import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Delete                            
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Find                               as PF
 
 -- my library
+import DataBase.MySQLX.DateTime
 import DataBase.MySQLX.Exception
 import DataBase.MySQLX.Model          as XM
 import DataBase.MySQLX.NodeSession
@@ -45,20 +48,6 @@ import GHC.Generics
 -- ======================================================================= --
 -- YEAR
 -- ======================================================================= --
-example06_01 :: IO ()
-example06_01 = do
-  putStrLn "start example6_01"
-  nodeSess <- openNodeSession $ defaultNodeSesssionInfo {database = "x_protocol_test", user = "root", password="root"}
-
-  (meta, ret@(x:xs)) <- executeRawSqlMetaData "select * from data_type_year limit 1" nodeSess
-
-  print meta
-  print ret 
-  print $ (BL.length (Seq.index x 0) )
-  print $ (BinG.runGet BinG.getWord16le (Seq.index x 0))
-
-  return ()
-
 
 {-
 create table data_type_year (my_year year);
@@ -80,6 +69,24 @@ create table data_type_year (my_year year);
 	0x00a0:  000e 0f00 0000 0b08 0310 021a 0808 0412  ................      e = 14 result_fetch_don  0f = 15, b = 11 -> Notice 
 	0x00b0:  0408 0218 0001 0000 0011                 ..........            11 = 17 OK
 -}
+example06_01 :: IO ()
+example06_01 = do
+  putStrLn "start example6_01"
+  nodeSess <- nodeSession 
+
+  (meta, ret@(x:xs)) <- executeRawSqlMetaData "select * from data_type_year limit 1" nodeSess
+
+  print meta
+  print ret 
+  -- print $ (BL.length (Seq.index x 0) )
+  -- print $ (BinG.runGet BinG.getWord16le (Seq.index x 0))
+  let b = Seq.index x 0
+  print $ getColDay' b
+
+  return ()
+
+
+
 
 -- ======================================================================= --
 -- DATE
@@ -104,43 +111,41 @@ mysql-sql> select * from data_type_date;
 example06_02 :: IO ()
 example06_02 = do
   putStrLn "start example6_02"
-  nodeSess <- openNodeSession $ defaultNodeSesssionInfo {database = "x_protocol_test", user = "root", password="root"}
+  nodeSess <- nodeSession 
 
   (meta, ret@(x:xs)) <- executeRawSqlMetaData "select * from data_type_date limit 1" nodeSess
 
   print meta
   print ret 
   let b = Seq.index x 0
-  print $ (BL.length b )
-  print $ (BinG.runGet example06_02_1 b)
+  print $ getColDay' b
+  -- print $ (BL.length b )
+  -- print $ (BinG.runGet example06_02_1 b)
 
   return ()
 
-example06_02_1 :: BinG.Get String
-example06_02_1 = do
-  y <- BinG.getWord16le 
-  m <- BinG.getWord8
-  d <- BinG.getWord8 
-  return $ (show (y-2048)) ++ "-" ++ (show m) ++ "-" ++ (show d)
+-- example06_02_1 :: BinG.Get String
+-- example06_02_1 = do
+--   y <- BinG.getWord16le 
+--   m <- BinG.getWord8
+--   d <- BinG.getWord8 
+--   return $ (show (y-2048)) ++ "-" ++ (show m) ++ "-" ++ (show d)
 
-{-
+example06_02_Insert :: IO ()
+example06_02_Insert = execSimpleTx "x_protocol_test" "root" "root" example06_02_Insert'
 
-mysql-sql> create table data_type_datetime (my_datetime datetime);
-Query OK, 0 rows affected (0.09 sec)
+example06_02_Insert' :: NodeSession -> IO ()
+example06_02_Insert' nodeSess = do
 
-mysql-sql> insert into data_type_datetime values ('2017-09-17 12:23:45');
-Query OK, 1 row affected (0.00 sec)
+  ret <- updateSql "insert into data_type_date values (?)"  [XM.any y] nodeSess
+  
+  print ret
+  return ()
+  where
+     y = fromGregorian 2001 02 19
+     -- t = TimeOfDay 19 23 54
+     -- lt = LocalTime y t
 
-mysql-sql> select * from data_type_datetime;
-+---------------------+
-| my_datetime         |
-+---------------------+
-| 2017-10-17 12:23:45 |
-+---------------------+
-1 row in set (0.00 sec)
-mysql-sql>
-
--}
 
 -- ======================================================================= --
 -- DATETIME
@@ -168,27 +173,43 @@ flag = 0
 example06_03 :: IO ()
 example06_03 = do
   putStrLn "start example6_03"
-  nodeSess <- openNodeSession $ defaultNodeSesssionInfo {database = "x_protocol_test", user = "root", password="root"}
+  nodeSess <- nodeSession 
 
   (meta, ret@(x:xs)) <- executeRawSqlMetaData "select * from data_type_datetime limit 1" nodeSess
 
   print meta
   print ret 
   let b = Seq.index x 0
-  print $ (BL.length b )
-  print $ (BinG.runGet example06_03_1 b)
+  print $ getColLocalTime' b
+  -- print $ (BL.length b )
+  -- print $ (BinG.runGet example06_03_1 b)
 
   return ()
 
-example06_03_1 :: BinG.Get String
-example06_03_1 = do
-  y <- BinG.getWord16le 
-  m <- BinG.getWord8
-  d <- BinG.getWord8 
-  hh <- BinG.getWord8 
-  mm <- BinG.getWord8 
-  ss <- BinG.getWord8 
-  return $ (show (y-2048)) ++ "-" ++ (show m) ++ "-" ++ (show d) ++ " " ++ (show hh) ++ ":" ++ (show mm) ++ ":" ++ (show ss)
+-- example06_03_1 :: BinG.Get String
+-- example06_03_1 = do
+--   y <- BinG.getWord16le 
+--   m <- BinG.getWord8
+--   d <- BinG.getWord8 
+--   hh <- BinG.getWord8 
+--   mm <- BinG.getWord8 
+--   ss <- BinG.getWord8 
+--   return $ (show (y-2048)) ++ "-" ++ (show m) ++ "-" ++ (show d) ++ " " ++ (show hh) ++ ":" ++ (show mm) ++ ":" ++ (show ss)
+
+example06_03_Insert :: IO ()
+example06_03_Insert = execSimpleTx "x_protocol_test" "root" "root" example06_03_Insert'
+
+example06_03_Insert' :: NodeSession -> IO ()
+example06_03_Insert' nodeSess = do
+
+  ret <- updateSql "insert into data_type_datetime values (?)"  [XM.any lt] nodeSess
+  
+  print ret
+  return ()
+  where
+     y = fromGregorian 2002 04 29
+     t = TimeOfDay 19 23 54
+     lt = LocalTime y t
 
 -- ======================================================================= --
 -- TIME
@@ -223,34 +244,35 @@ mysql-sql>
 example06_04 :: IO ()
 example06_04 = do
   putStrLn "start example6_04"
-  nodeSess <- openNodeSession $ defaultNodeSesssionInfo {database = "x_protocol_test", user = "root", password="root"}
+  nodeSess <- nodeSession 
 
   (meta, ret@(x:xs)) <- executeRawSqlMetaData "select * from data_type_time limit 1" nodeSess
 
   print meta
   print ret 
   let b = Seq.index x 0
-  print $ (BL.length b )
-  print $ (SBinG.runBitGet (BL.toStrict b) example06_04_1)
+  print $ getColMysqlTime'  b
+  -- print $ (BL.length b )
+  -- print $ (SBinG.runBitGet (BL.toStrict b) example06_04_1)
 
   return ()
 
-example06_04_1 :: SBinG.BitGet String
-example06_04_1 = do
-  d1 <- SBinG.getBit
-  d2 <- SBinG.getBit
-  d3 <- SBinG.getBit
-  d4 <- SBinG.getBit
-  d5 <- SBinG.getBit
-  d6 <- SBinG.getBit
-  d7 <- SBinG.getBit
-  d8 <- SBinG.getBit -- sign  true -> negative
-  h <- SBinG.getAsWord8 8
-  m <- SBinG.getAsWord8 8 
-  s <- SBinG.getAsWord8 8
-
-  return $  (show d1) ++ " " ++  (show d2) ++ " " ++  (show d3) ++ " " ++  (show d4) ++ " " ++  (show d5) ++ " " ++  (show d6) ++ " " ++ (show d7) ++ " " ++ (show d8) ++ " " ++  (show h) ++ ":" ++ (show m) ++ ":" ++ (show s) -- ++ ":" ++ (show s1)
---
+-- example06_04_1 :: SBinG.BitGet String
+-- example06_04_1 = do
+--   d1 <- SBinG.getBit
+--   d2 <- SBinG.getBit
+--   d3 <- SBinG.getBit
+--   d4 <- SBinG.getBit
+--   d5 <- SBinG.getBit
+--   d6 <- SBinG.getBit
+--   d7 <- SBinG.getBit
+--   d8 <- SBinG.getBit -- sign  true -> negative
+--   h <- SBinG.getAsWord8 8
+--   m <- SBinG.getAsWord8 8 
+--   s <- SBinG.getAsWord8 8
+-- 
+--   return $  (show d1) ++ " " ++  (show d2) ++ " " ++  (show d3) ++ " " ++  (show d4) ++ " " ++  (show d5) ++ " " ++  (show d6) ++ " " ++ (show d7) ++ " " ++ (show d8) ++ " " ++  (show h) ++ ":" ++ (show m) ++ ":" ++ (show s) -- ++ ":" ++ (show s1)
+-- --
 --
 -- 1 bit sign    (1= non-negative, 0= negative)
 -- 1 bit unused  (reserved for future extensions)
@@ -259,6 +281,21 @@ example06_04_1 = do
 -- 6 bits second (0-59) 
 -----------------------
 --24 bits = 3 bytes
+
+example06_04_Insert :: IO ()
+example06_04_Insert = execSimpleTx "x_protocol_test" "root" "root" example06_04_Insert'
+
+example06_04_Insert' :: NodeSession -> IO ()
+example06_04_Insert' nodeSess = do
+
+  ret <- updateSql "insert into data_type_time values (?)"  [XM.any (False, t)] nodeSess
+  
+  print ret
+  return ()
+  where
+     -- y = fromGregorian 2001 02 19
+     t = TimeOfDay 19 19 19
+     -- lt = LocalTime y t
 
 
 -- ======================================================================= --
@@ -287,25 +324,43 @@ flag = 1
 example06_05 :: IO ()
 example06_05 = do
   putStrLn "start example06_05"
-  nodeSess <- openNodeSession $ defaultNodeSesssionInfo {database = "x_protocol_test", user = "root", password="root"}
+  nodeSess <- nodeSession 
 
   (meta, ret@(x:xs)) <- executeRawSqlMetaData "select * from data_type_timestamp limit 1" nodeSess
 
   print meta
   print ret 
   let b = Seq.index x 0
-  print $ (BL.length b )
-  print $ (BinG.runGet example06_05_1 b)
+  print $ getColLocalTime' b
+  -- print $ (BL.length b )
+  -- print $ (BinG.runGet example06_05_1 b)
 
   return ()
 
-example06_05_1 :: BinG.Get String
-example06_05_1 = do
-  y <- BinG.getWord16le 
-  m <- BinG.getWord8
-  d <- BinG.getWord8 
-  hh <- BinG.getWord8 
-  mm <- BinG.getWord8 
-  ss <- BinG.getWord8 
-  return $ (show (y-2048)) ++ "-" ++ (show m) ++ "-" ++ (show d) ++ " " ++ (show hh) ++ ":" ++ (show mm) ++ ":" ++ (show ss)
+-- example06_05_1 :: BinG.Get String
+-- example06_05_1 = do
+--   y <- BinG.getWord16le 
+--   m <- BinG.getWord8
+--   d <- BinG.getWord8 
+--   hh <- BinG.getWord8 
+--   mm <- BinG.getWord8 
+--   ss <- BinG.getWord8 
+--   return $ (show (y-2048)) ++ "-" ++ (show m) ++ "-" ++ (show d) ++ " " ++ (show hh) ++ ":" ++ (show mm) ++ ":" ++ (show ss)
+
+example06_05_Insert :: IO ()
+example06_05_Insert = do
+  putStrLn "start example6_02"
+  nodeSess <- nodeSession 
+
+  ret <- updateSql "insert into data_type_timestamp values (?)"  [XM.any lt] nodeSess
+  
+  print ret
+  return ()
+  where
+     y = fromGregorian 2023 09 17
+     t = TimeOfDay 19 23 54
+     lt = LocalTime y t
+
+nodeSession :: IO NodeSession
+nodeSession = openNodeSession $ defaultNodeSesssionInfo {database = "x_protocol_test", user = "root", password="root"}
 
