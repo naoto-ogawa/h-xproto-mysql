@@ -14,8 +14,10 @@ Session (a.k.a. Connection)
 
 module DataBase.MySQLX.NodeSession 
   (
+  -- * Message
+    Message
   -- * Session Infomation
-    NodeSessionInfo(..)
+  , NodeSessionInfo(..)
   , defaultNodeSesssionInfo
   -- * Node Session 
   , NodeSession(clientId, auth_data)
@@ -26,9 +28,14 @@ module DataBase.MySQLX.NodeSession
   , begenTrxNodeSession
   , commitNodeSession
   , rollbackNodeSession
+  -- * Expectation
+  , sendExpectNoError 
+  , sendExpectUnset
+  , sendExpectClose 
   -- 
   , readMessagesR 
   , writeMessageR
+  , repeatreadMessagesR
   -- * Helper functions
   , isSocketConnected
   ) where
@@ -45,6 +52,7 @@ import Network.Socket hiding (recv)
 import Network.Socket.ByteString (send, sendAll, recv)
 
 import Control.Exception.Safe (Exception, MonadThrow, SomeException, throwM)
+import Control.Monad
 import Control.Monad.Trans.Reader
 import Control.Monad.IO.Class
 
@@ -120,7 +128,7 @@ openNodeSession sessionInfo = do
   (t, msg):xs <- runReaderT (_auth sessionInfo) session
   case t of 
     11 -> do                                             -- TODO
-      debug "success"
+      -- debug "success"
       frm <- getFrame msg
       case PFr.payload frm of
         Just x  -> do 
@@ -184,9 +192,11 @@ sendAuthenticateStart = writeMessageR . mkAuthenticateStart
 sendAutenticateContinue :: (MonadIO m) => String -> String -> String -> B.ByteString -> ReaderT NodeSession m ()
 sendAutenticateContinue database user password salt = writeMessageR $ mkAuthenticateContinue database user salt password 
 
+-- | Send Close message to the server.
 sendClose ::  (MonadIO m) => ReaderT NodeSession m () 
 sendClose = writeMessageR mkClose
 
+-- | Retreive a salt given by the server.
 recieveSalt :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m B.ByteString
 recieveSalt = do
   msg <- getAuthenticateContinueR
@@ -195,6 +205,13 @@ recieveSalt = do
 recieveOk :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m POk.Ok
 recieveOk = getOkR
 
+-- | Send NoError expectation message to the server.
+sendExpectNoError ::  (MonadIO m) => ReaderT NodeSession m () 
+sendExpectNoError = writeMessageR mkExpectNoError
+
+-- | Send Unset expectation message to the server.
+sendExpectUnset ::  (MonadIO m) => ReaderT NodeSession m () 
+sendExpectUnset = writeMessageR mkExpectUnset
 
 {-
 interfaces as follows:
@@ -241,6 +258,18 @@ writeMessage NodeSession{..} msg = do
     len   = fromIntegral   $ PBW.messageSize        msg 
     ty    = putMessageType $ fromIntegral $ getClientMsgTypeNo msg
 
+sendExpectClose ::  (MonadIO m) => ReaderT NodeSession m () 
+sendExpectClose = do
+  nodeSess <- ask
+  liftIO $ writeExpectClose nodeSess 
+
+writeExpectClose NodeSession{..} = do
+  liftIO $ sendAll _socket (BL.toStrict $ (putMessageLengthLE (len + 1)) `BL.append` ty `BL.append` bytes)
+  where 
+    bytes = PBW.messagePut mkClose
+    len   = fromIntegral 0 
+    ty    = putMessageType $ fromIntegral 25
+
 -- | write a message.
 writeMessageR :: (PBT.TextMsg           msg
                  ,PBR.ReflectDescriptor msg
@@ -282,9 +311,38 @@ readMessages NodeSession{..} = do
    ret <- runReaderT (readAllMsgR (fromIntegral $ getIntFromLE len)) _socket
    return ret
 
+readMessagesEither :: (MonadIO m) => NodeSession -> m (Either [Message] [Message])
+readMessagesEither NodeSession{..} = do
+   len <- runReaderT readMsgLengthR _socket
+   -- debug $ "1st length =" ++ (show $ getIntFromLE len)
+   ret <- runReaderT (readAllMsgR (fromIntegral $ getIntFromLE len)) _socket
+   if hasError ret 
+   then return $ Left  ret -- Error
+   else return $ Right ret -- Success
+   where hasError r = length (filterError r) >= 1 
+         filterError xs = filter (\(t,m) -> t == s_error) xs
+
 -- | retrieve messages from Node session.
 readMessagesR :: (MonadIO m) => ReaderT NodeSession m [Message] 
 readMessagesR = ask >>= liftIO . readMessages
+
+-- | retrieve messages from Node session.
+repeatreadMessagesR :: (MonadIO m) 
+                    => Bool                   -- ^ True : Expectation No Error , False : Otherwise
+                    -> Int                    -- ^ The number of sending messages.
+                    -> ([Message], [Message]) -- ^ Initial empty value, whichi should be  ([], [])
+                    -> ReaderT NodeSession m ([Message], [Message]) -- ^ fst : Success messages, snd : Error messages
+repeatreadMessagesR noError num acc = do
+  if num == 0
+  then return acc
+  else do
+    nodeSess <- ask
+    r <- readMessagesEither nodeSess
+    case r of
+      Left  m -> if noError 
+                 then return                              (fst acc        , m           )
+                 else repeatreadMessagesR noError (num-1) (fst acc        , snd acc ++ m)
+      Right m ->      repeatreadMessagesR noError (num-1) ((fst acc) ++ m , snd acc     )
 
 readOneMessage :: (MonadIO m) => NodeSession -> m Message
 readOneMessage NodeSession{..} = runReaderT readOneMsgR _socket 
@@ -337,9 +395,9 @@ readAllMsgR len = do
   if t' == s_sql_stmt_execute_ok then -- SQL_STMT_EXECUTE_OK is the last message and has no data.
     return [(s_sql_stmt_execute_ok, B.empty)]
   else do
-    debug $ "type=" ++ (show $ byte2Int t) ++ ", readking len=" ++ (show (len-1 `max` 0)) ++ " , plus 4 byte"
+    -- debug $ "type=" ++ (show $ byte2Int t) ++ ", reading len=" ++ (show (len-1 `max` 0)) ++ " , plus 4 byte"
     (msg, len) <- readNextMsgR (len-1)
-    debug $ (show msg) ++ " , next length of readking chunk byte is " ++ (show $ if B.null len then 0 else getIntFromLE len)
+    -- debug $ (show msg) ++ " , next length of reading chunk byte is " ++ (show $ if B.null len then 0 else getIntFromLE len)
     if B.null len 
     then 
       return [(t', msg)]
