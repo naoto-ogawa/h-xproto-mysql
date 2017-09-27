@@ -120,8 +120,6 @@ removeUnderscores :: String -> String
 removeUnderscores x = foldr (\x a -> if x == '-' then a else x : a) [] x
 
 --
--- https://stackoverflow.com/questions/10099921/efficiently-turn-a-bytestring-into-a-hex-representation?answertab=active#tab-top
--- 
 _maxLen :: Int
 _maxLen = maxBound `quot` 2
 
@@ -139,6 +137,7 @@ toHex' :: BL.ByteString -> BL.ByteString
 toHex' = BL.fromStrict . toHex . BL.toStrict 
 
 -- | make a hex representation.
+-- https://stackoverflow.com/questions/10099921/efficiently-turn-a-bytestring-into-a-hex-representation?answertab=active#tab-top
 toHex :: BI.ByteString -> BI.ByteString
 toHex bs
     | len > _maxLen = error "too long to convert"
