@@ -778,6 +778,10 @@ mkCondtinonOpUnset condition = condition {POC.op = Just $ POCCO.EXPECT_OP_UNSET}
 mkConditionNoError :: POC.Condition
 mkConditionNoError = PB.defaultValue {POC.condition_key = condition_no_error}
 
+-- -- | Make NO_ERROR Condition Unset.
+-- mkConditionNoErrorUnset :: POC.Condition
+-- mkConditionNoErrorUnset = mkCondtinonOpSet $ PB.defaultValue {POC.condition_key = condition_no_error}
+-- 
 condition_no_error               = 1 :: Word32
 condition_schema_version         = 2 :: Word32
 condition_gtid_executed_contains = 3 :: Word32
@@ -797,9 +801,14 @@ mkOpen                                = PB.defaultValue
 mkExpectCtxCopyPrev :: POp.Open 
 mkExpectCtxCopyPrev = POp.Open (Just POCtx.EXPECT_CTX_COPY_PREV) Seq.empty
 
--- | No Error Expectation
+-- | +No Error Expectation
 mkExpectNoError :: POp.Open
 mkExpectNoError = POp.Open (Just POCtx.EXPECT_CTX_EMPTY) (Seq.singleton mkConditionNoError) 
+
+-- | -No Error Expectation (Don't use No Error explicitly)
+mkExpectUnset :: POp.Open
+mkExpectUnset = POp.Open (Just POCtx.EXPECT_CTX_EMPTY) (Seq.empty) 
+
 
 
 
