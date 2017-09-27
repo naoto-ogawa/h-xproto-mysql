@@ -13,7 +13,8 @@ portability :
 
 module DataBase.MySQLX.DateTime
   (
-   XM.any  
+   MysqlTime
+  ,XM.any  
   ,getColDay
   ,getColDay' 
   ,getColLocalTime
