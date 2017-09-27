@@ -20,6 +20,7 @@ module DataBase.MySQLX.Statement
   ,executeRawSql
   ,executeRawSqlMetaData
   ,updateSql
+  ,updateSql'
   ,updateRawSql
    -- * ResultSet operations
   ,ColumnValuable(..)
@@ -31,6 +32,9 @@ module DataBase.MySQLX.Statement
   ,getColMetaName
    -- ** Convenience functions
   ,execSimpleTx
+   -- ** Generic Sql operations
+  ,sendStmtExecuteSql 
+  ,responseUpdateSql' 
   ) where
 
 -- general, standard library
@@ -90,7 +94,7 @@ executeSql :: (MonadIO m, MonadThrow m)
            -> NodeSession                  -- ^ Node session
            -> m [Seq.Seq BL.ByteString]    -- ^ Result Set
 executeSql sql param nodeSess = do
-  runReaderT (_sendStmtExecuteSql sql param) nodeSess
+  runReaderT (sendStmtExecuteSql sql param) nodeSess
   ret <- runReaderT readMessagesR nodeSess
   return $ join $ map ((map PR.field) . getRow . snd) $ filter (\(t, b) -> t == s_resultset_row) ret 
   
@@ -108,7 +112,7 @@ executeSqlMetaData :: (MonadIO m, MonadThrow m)
                      -> NodeSession        -- ^ Node session 
                      -> m (Seq.Seq PCMD.ColumnMetaData, [Seq.Seq BL.ByteString]) -- ^ Result Set tuple (metadata, result)
 executeSqlMetaData sql param nodeSess = do
-  runReaderT (_sendStmtExecuteSql sql param) nodeSess
+  runReaderT (sendStmtExecuteSql sql param) nodeSess
   ret <- runReaderT readMessagesR nodeSess
   return $ tupleRfmap ((map PR.field) . join)  -- m (_, [m Row]) -> m (_, [Row]) -> (_, [Seq ByteString])
          $ tupleLfmap ( Seq.fromList  . join)  -- m ([m ColumnMetaData], _) -> m ([ColumnMetaData], _) -> m (Seq ColumnMetaData, _)
@@ -241,19 +245,34 @@ updateSql' :: (MonadIO m, MonadThrow m)
           -> NodeSession           -- ^ Node session
           -> m (Maybe PW.Warning, W.Word64)  -- ^ A pare of a message and result (# of affected rows)
 updateSql' sql param nodeSess = do
-  runReaderT (_sendStmtExecuteSql sql param) nodeSess
-  ret@(x:xs) <- runReaderT readMessagesR nodeSess   -- [(Int, B.ByteString)]
+  runReaderT (sendStmtExecuteSql sql param) nodeSess
+  responseUpdateSql' nodeSess
+
+-- | Retreive both a warning and a updated count from One Server response.
+responseUpdateSql' :: (MonadThrow m, MonadIO m) 
+                   => NodeSession                    -- ^ Node Session 
+                   -> m (Maybe PW.Warning, W.Word64) -- ^ A pare of a message and result (# of affected rows)
+responseUpdateSql' nodeSess = do
+  ret@(x:xs) <- runReaderT readMessagesR nodeSess
   if fst x == s_error then do
     msg <- getError $ snd x
-    throwM $ XProtocolError msg
+    debug msg
+    return (Nothing, 0)
+    -- throwM $ XProtocolError msg
   else do 
     frms <- sequence $ map (\(t,b) -> getFrame b) $ filter (\(t, b) -> t == s_notice) ret -- [Frame]
+    -- debug frms
     let warn = safeHead $ filterWarnings frame_warning frms >>= getPayloadWarning
     ssc  <- getPayloadSessionStateChanged $ head $ filterWarnings frame_session_state_changed frms
     rows <- getRowsAffected ssc
     return (warn, rows)
   where 
     filterWarnings = \t frames -> filter (\PFr.Frame{..} -> type' == t) frames
+
+-- repeatResponseUpdateSql :: (MonadThrow m, MonadIO m) 
+--                    => NodeSession                    -- ^ Node Session 
+--                    -> Int                            -- ^ the number of messages in a Pipline
+--                    -> m (Maybe PW.Warning, W.Word64) -- ^ A pare of a message and result (# of affected rows)
 
 
 -- -----------------------------------------------------------------------------
@@ -301,6 +320,7 @@ execSimpleTx database user pw func =
              rollbackNodeSession nodeSess
              return ()
            )
+         -- The last resort.
          , Handler $ (\(ex :: SomeException) -> do
              print $ "SomeException : " ++ (show ex)
              rollbackNodeSession nodeSess
@@ -310,8 +330,12 @@ execSimpleTx database user pw func =
     )
 
 -- -----------------------------------------------------------------------------
--- internal use 
+--  
 -- -----------------------------------------------------------------------------
-_sendStmtExecuteSql :: (MonadIO m) => String -> [PA.Any] -> ReaderT NodeSession m () 
-_sendStmtExecuteSql sql args  = writeMessageR $ mkStmtExecuteSql sql args
+-- | Generic Sql execution
+sendStmtExecuteSql :: (MonadIO m) 
+                   => String      -- ^ SQL statment 
+                   -> [PA.Any]    -- ^ bind parameters
+                   -> ReaderT NodeSession m () 
+sendStmtExecuteSql sql args  = writeMessageR $ mkStmtExecuteSql sql args
 
