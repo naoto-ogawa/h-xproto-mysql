@@ -1,6 +1,6 @@
 {- |
 module      : DataBase.MySQLX.DataTypes
-description : utilties 
+description : DateTime 
 copyright   : (c) naoto ogawa, 2017
 license     : mit 
 maintainer  :  

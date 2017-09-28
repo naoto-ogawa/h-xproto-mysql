@@ -1,6 +1,6 @@
 {- |
 module      : DataBase.MySQLX.JSON
-description : utilties 
+description : JSON 
 copyright   : (c) naoto ogawa, 2017
 license     : mit 
 maintainer  :  
