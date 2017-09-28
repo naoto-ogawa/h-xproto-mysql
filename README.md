@@ -68,3 +68,8 @@ To workaround, I modify (modified ?) ```mysqlx_expr.proto``` as follows :
 
 [naoto-gawa](https://github.com/naoto-ogawa)
 
+## References
+
+* X Protocol MySQL workload 
+ * https://dev.mysql.com/worklog/task/?id=8639
+
