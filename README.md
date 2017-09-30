@@ -147,6 +147,54 @@ runReaderT (makeNoExpect bulk) nodeSess
 ret <- runReaderT (repeatreadMessagesR True 5 ([],[])) nodeSess
 ```
 
+### Do you want try-catch-finally?
+
+Loan pattern and try-catch-finally.
+```haskell
+bracket
+-- frist
+(do
+    nodeSess <- openNodeSession $ defaultNodeSesssionInfo {
+          database = "x_protocol_test"
+        , user     = "your_user"
+        , password = "your_password"
+        }
+    begenTrxNodeSession nodeSess
+    return nodeSess
+)
+-- last
+(\nodeSess -> do
+    closeNodeSession nodeSess
+    return nodeSess
+)
+-- in between
+(\nodeSess -> do
+        ret1 <- updateRawSql "insert into bazz values (1)" nodeSess
+        ret2 <- updateRawSql "insert into bazz values (1)" nodeSess
+        print $ "ret1=" ++ (show ret1) ++ ", " ++ "ret2=" ++ (show ret2)
+        commitNodeSession nodeSess
+        return nodeSess
+    `catches`
+        [
+          handleError (\ex -> do
+            print $ "catching XProtocolError :" ++ (show ex)
+            rollbackNodeSession nodeSess
+            return nodeSess
+        )
+        , handleException $ (\ex -> do
+            print $ "catching XProtocolException :" ++ (show ex)
+            rollbackNodeSession nodeSess
+            return nodeSess
+        )
+        , Handler $ (\(ex :: SomeException) -> do
+            print $ "catching SomeException :" ++ (show ex)
+            rollbackNodeSession nodeSess
+            return nodeSess
+        )
+        ]
+)
+```
+
 ## Requirement
 
 ## Install
