@@ -98,7 +98,7 @@ print ret
 
 Insert
 ```haskell
--- Note that your json needs uuid whose key is _id.
+-- Note that your json needs an uuid whose key is _id.
 json1 <- insertUUIDIO "{\"name\" : \"Tom\" , \"age\" : 18 }"
  
 let i1 = PB.defaultValue 
