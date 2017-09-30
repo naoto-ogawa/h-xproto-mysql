@@ -39,7 +39,9 @@ module DataBase.MySQLX.CRUD
   ,setTypedRow         -- row
   ,setTypedRow'        -- row
   ,setArgs             -- args
-  ,setLimit            -- limit
+  ,setLimit            -- limit (Limit)
+  ,setLimit'           -- limit (Int)
+  ,setLimit''          -- limit (Int, Int)
   ,setOrder            -- order
   ,setGrouping         -- grouping
   ,setGroupingCriteria -- grouping_criteria
@@ -156,7 +158,11 @@ instance HasArgs PD.Delete where setArgs a arg = a {PD.args = Seq.fromList arg }
 
 class HasLimit a where
   -- | CRUD operations which need a Limit 
-  setLimit :: a -> PL.Limit -> a 
+  setLimit   :: a -> PL.Limit -> a 
+  setLimit'  :: a -> Int -> a 
+  setLimit'  a num = setLimit  a (mkLimit' num)
+  setLimit'' :: a -> Int -> Int -> a 
+  setLimit'' a num offset = setLimit a (mkLimit num offset)
 instance HasLimit PF.Find   where setLimit a lmt = a {PF.limit = Just lmt } 
 instance HasLimit PU.Update where setLimit a lmt = a {PU.limit = Just lmt } 
 instance HasLimit PD.Delete where setLimit a lmt = a {PD.limit = Just lmt } 

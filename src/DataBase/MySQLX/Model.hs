@@ -671,6 +671,10 @@ exprIdentifierName = exprColumnIdentifier . columnIdentifierName
 exprDocumentPathItem :: String -> PEx.Expr
 exprDocumentPathItem docPath = exprColumnIdentifier $ columnIdentifierDocumentPahtItem [mkDocumentPathItem docPath]
 
+-- | Alias of exprDocumentPathItem
+path = exprDocumentPathItem
+
+
 mkFetchDone                           :: PFD.FetchDone                          
 mkFetchDone                           = PB.defaultValue
 mkFetchDoneMoreOutParams              :: PFDMOP.FetchDoneMoreOutParams             
@@ -727,8 +731,14 @@ mkInsertX schema table json = PB.defaultValue {
     ,PI.args        = Seq.empty
   }
 
-mkLimit                               :: PL.Limit                              
-mkLimit                               = PB.defaultValue
+-- | Mkae a Limit instance.
+mkLimit :: Int -> Int -> PL.Limit                              
+mkLimit num offset = PL.Limit (fromIntegral num) (Just $ fromIntegral offset)
+
+-- | Mkae a Limit instance.
+mkLimit' :: Int -> PL.Limit                              
+mkLimit' num = PL.Limit (fromIntegral num) Nothing 
+
 mkModifyView                          :: PMV.ModifyView                         
 mkModifyView                          = PB.defaultValue
 {- ObjectField -}
