@@ -9,13 +9,143 @@ Overview
 
 ## Examples
 
-### Session Management
+### Session Management (open and close)
+
+Open a node session.
+```haskell
+nodeSess <- openNodeSession $ defaultNodeSesssionInfo {
+      database = "your_database"
+    , user     = "your_username"
+    , password = "your_password"
+    -- , host = default host is 127.0.0.1
+    -- , port = default port is 33060
+    }
+```
+Close a node session.
+```haskell
+closeNodeSession nodeSess
+```
 
 ### Transaction
 
+Begin a transaction.
+```haskell
+begenTrxNodeSession nodeSess
+```
+
+Commit a transaction.
+```haskell
+commitNodeSession nodeSess
+```
+Rollback a transaction.
+```haskell
+rollbackNodeSession nodeSess
+```
+
 ### SQL interface
 
+Update
+```haskell
+ret0 <- updateSql "create table bar (id int(5), data varchar(100));" [] nodeSess
+
+ret1 <- updateSql "insert into foo values (1,\"aaa\")" [] nodeSess
+print $ "insert result = " ++ (show ret1)
+
+ret2 <- updateSql "update foo set v = ? where id = ?"  [XM.any "ccc", XM.any $ (1 :: Int)] nodeSess
+print $ "update result = " ++ (show ret2)
+
+ret3 <- updateSql "delete from foo where id = ?"  [XM.any $ (1 :: Int)] nodeSess
+print $ "delete result = " ++ (show ret3)
+```
+
+Select (using Template Haskell)
+```haskell
+data MyRecord = MyRecord {
+      id           :: Int
+    , name         :: String
+    , country_code :: String
+    , district     :: String
+    , info         :: String
+} deriving (Show, Eq)
+
+ret@(x:xs) <- executeRawSql "select * from city limit 2" nodeSess
+print ( $(retrieveRow ''MyRecord) x )
+```
+
 ### Document interface
+
+Find
+```haskell
+let f = PB.defaultValue 
+        `setCollection` (mkCollection "world_x" "countryinfo") 
+        `setDataModel`  PDM.DOCUMENT 
+        `setCriteria`   (exprDocumentPathItem "name" @== expr "Mike" )
+
+ret <- CRUD.find f nodeSess
+print ret
+```
+
+Update
+```haskell
+let f = PB.defaultValue 
+        `setCollection` (mkCollection "x_protocol_test" "foo_doc") 
+        `setDataModel`  PDM.DOCUMENT 
+        `setCriteria`   (exprDocumentPathItem "name" @== expr "Jone" )
+        `setOperation`  [updateItemReplace "age" (999 :: Int)]
+ret <- CRUD.update f nodeSess
+print ret
+```
+
+Insert
+```haskell
+-- Note that your json needs uuid whose key is _id.
+json1 <- insertUUIDIO "{\"name\" : \"Tom\" , \"age\" : 18 }"
+ 
+let i1 = PB.defaultValue 
+          `setCollection` (mkCollection "x_protocol_test" "foo_doc") 
+          `setDataModel`  PDM.DOCUMENT 
+
+ret <- CRUD.insert (i1 `setTypedRow` [mkExpr2TypedRow' $ expr json1]) nodeSess
+print ret
+``` 
+
+Delete
+```haskell
+let f = PB.defaultValue 
+        `setCollection` (mkCollection "x_protocol_test" "foo_doc") 
+        `setDataModel` PDM.DOCUMENT
+ret <- CRUD.delete f nodeSess
+print ret
+```
+
+### Pipeline
+
+```haskell
+sql1 = "insert into test_users values (1, 'mike'  , 'mike@example.com'  ,  45);"
+sql2 = "insert into test_users values (2, 'nancy' , 'nancy@example.com' , 115);"
+sql3 = "insert into test_users XXXXXX (3, 'steve' , 'steve@example.com' , 298);"  -- invalid sql
+sql4 = "insert into test_users values (4, 'james' , 'steve@example.com' , 444);"  -- rejected by server
+sql5 = "insert into test_users values (5, 'jhon'  , 'steve@example.com' , 555);"  -- rejected by server
+
+-- short cut
+exec = sendStmtExecuteSql 
+
+-- Make a bulk of inserts
+bulk :: ReaderT NodeSession IO ()
+bulk = exec sql1 [] >> exec sql2 [] >> exec sql3 [] >> exec sql4 [] >> exec sql5 [] 
+
+-- Make a pipeline
+makeNoExpect sqls = do  
+  sendExpectNoError
+  sqls
+  sendExpectClose
+
+-- Run the pipeline
+runReaderT (makeNoExpect bulk) nodeSess
+
+-- Retreive the resultset.
+ret <- runReaderT (repeatreadMessagesR True 5 ([],[])) nodeSess
+```
 
 ## Requirement
 
@@ -71,5 +201,5 @@ To workaround, I modify (modified ?) ```mysqlx_expr.proto``` as follows :
 ## References
 
 * X Protocol MySQL workload 
- * https://dev.mysql.com/worklog/task/?id=8639
+  * https://dev.mysql.com/worklog/task/?id=8639
 
