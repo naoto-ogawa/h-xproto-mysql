@@ -226,6 +226,9 @@ book = docs.next();
 - Connection / Transaction
 - SQL
 - CRUD
+- Pipeline
+
+see [README.md](https://github.com/naoto-ogawa/h-xproto-mysql)
 
 ---
 
