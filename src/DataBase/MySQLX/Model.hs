@@ -502,8 +502,8 @@ getColumnOriginalName = _maybeByteString2Text . PCMD.original_name
 getColumnTable :: PCMD.ColumnMetaData -> T.Text
 getColumnTable = _maybeByteString2Text . PCMD.table 
 
-getColumnOriginalTalbe :: PCMD.ColumnMetaData -> T.Text
-getColumnOriginalTalbe = _maybeByteString2Text . PCMD.original_table 
+getColumnOriginalTable :: PCMD.ColumnMetaData -> T.Text
+getColumnOriginalTable = _maybeByteString2Text . PCMD.original_table 
 
 getColumnSchema :: PCMD.ColumnMetaData -> T.Text
 getColumnSchema = _maybeByteString2Text . PCMD.schema 
@@ -523,8 +523,69 @@ getColumnLength meta = fromMaybe 0 $ PCMD.length meta
 getColumnFlags :: PCMD.ColumnMetaData -> W.Word32
 getColumnFlags meta = fromMaybe 0 $ PCMD.flags meta
 
+getColumnContentType :: PCMD.ColumnMetaData -> W.Word32
+getColumnContentType meta = fromMaybe 0 $ PCMD.content_type meta
+
 _maybeByteString2Text :: Maybe BL.ByteString -> T.Text 
 _maybeByteString2Text = TE.decodeUtf8 . BL.toStrict . M.fromJust 
+
+isSint :: PCMD.ColumnMetaData -> Bool
+isSint = (==) PCMDFT.SINT . PCMD.type'
+
+isUint :: PCMD.ColumnMetaData -> Bool
+isUint = (==) PCMDFT.UINT . PCMD.type'
+
+isDouble :: PCMD.ColumnMetaData -> Bool
+isDouble = (==) PCMDFT.DOUBLE . PCMD.type'
+
+isFloat :: PCMD.ColumnMetaData -> Bool
+isFloat = (==) PCMDFT.FLOAT . PCMD.type'
+
+isBytes :: PCMD.ColumnMetaData -> Bool
+isBytes = (==) PCMDFT.BYTES . PCMD.type'
+
+isTime :: PCMD.ColumnMetaData -> Bool
+isTime = (==) PCMDFT.TIME . PCMD.type'
+
+isDatetime :: PCMD.ColumnMetaData -> Bool
+isDatetime = (==) PCMDFT.DATETIME . PCMD.type'
+
+isSet :: PCMD.ColumnMetaData -> Bool
+isSet = (==) PCMDFT.SET . PCMD.type'
+
+isEnum :: PCMD.ColumnMetaData -> Bool
+isEnum = (==) PCMDFT.ENUM . PCMD.type'
+
+isBit :: PCMD.ColumnMetaData -> Bool
+isBit = (==) PCMDFT.BIT . PCMD.type'
+
+isDecimal :: PCMD.ColumnMetaData -> Bool
+isDecimal = (==) PCMDFT.DECIMAL . PCMD.type'
+
+_eqlField :: (PCMD.ColumnMetaData -> Maybe BL.ByteString) -> PCMD.ColumnMetaData -> String -> Bool
+_eqlField getter meta val =
+  case getter meta of 
+    Nothing -> False
+    Just y  -> y == (BL.fromStrict $ s2bs val)
+
+eqlCMDName :: PCMD.ColumnMetaData -> String -> Bool
+eqlCMDName colmeta name = _eqlField PCMD.name colmeta name
+
+eqlCMDOriginalName :: PCMD.ColumnMetaData -> String -> Bool
+eqlCMDOriginalName colmeta name = _eqlField PCMD.original_name colmeta name
+
+eqlCMDTable :: PCMD.ColumnMetaData -> String -> Bool
+eqlCMDTable colmeta name = _eqlField PCMD.table colmeta name
+
+eqlCMDOriginalTable :: PCMD.ColumnMetaData -> String -> Bool
+eqlCMDOriginalTable colmeta name = _eqlField PCMD.original_table colmeta name
+
+eqlCMDSchema :: PCMD.ColumnMetaData -> String -> Bool
+eqlCMDSchema colmeta name = _eqlField PCMD.schema colmeta name
+
+eqlCMDCatalog :: PCMD.ColumnMetaData -> String -> Bool
+eqlCMDCatalog colmeta name = _eqlField PCMD.catalog colmeta name
+
 
 -- //   BYTES  0x0001 GEOMETRY (WKB encoding)
 -- //   BYTES  0x0002 JSON (text encoding)
@@ -1165,7 +1226,7 @@ getClientId = getSessionStateChangedVal PSSCP.CLIENT_ID_ASSIGNED "CLIENT_ID_ASSI
 
 getSessionStateChangedVal :: (MonadIO m, MonadThrow m, Scalarable a) => PSSCP.Parameter -> String -> PSSC.SessionStateChanged -> m a
 getSessionStateChangedVal p info ssc = do
-  debug ssc
+  -- debug ssc
   if PSSC.param ssc == p then 
     case PSSC.value ssc of 
       Just s  -> getScalarVal' s 
