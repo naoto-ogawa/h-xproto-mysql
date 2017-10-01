@@ -7,6 +7,8 @@ maintainer  :
 stability   : experimental
 portability : 
 
+Interface for X Protocol Protocol Buffer.
+
 -}
 
 {-# LANGUAGE TypeSynonymInstances #-}
