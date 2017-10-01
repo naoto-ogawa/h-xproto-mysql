@@ -15,7 +15,7 @@ Haskell Client for MySQL X Protocol
   - X Plugin enabled
 - Official Client
   - Node.js / Java / .Net / Python / MySQL Shell
-- X Plugin (MySQL) <-> TCP(36000) <-> X Protocol <-> X DevAPI (Driver) 
+- X Plugin (MySQL) <-> TCP(33060) <-> X Protocol <-> X DevAPI (Driver) 
 
 ---
 
