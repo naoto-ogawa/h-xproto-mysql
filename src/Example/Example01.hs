@@ -87,6 +87,11 @@ example04 = do
              rollbackNodeSession nodeSess
              return nodeSess 
            )
+         , Handler $ (\(ex :: SomeException) -> do
+             print $ "catching SomeException :" ++ (show ex) 
+             rollbackNodeSession nodeSess
+             return nodeSess 
+           )
          ]
 --        `catch`
 --          \(e :: SomeException)-> do
