@@ -25,6 +25,7 @@ module DataBase.MySQLX.Statement
    -- * ResultSet operations
   ,ColumnValuable(..)
   ,getColInt64
+  ,getColInt32
   ,getColString
   ,cutNull
    -- ** ResultSet MetaData Operation
@@ -157,6 +158,16 @@ getColInt64 seq idx = PBW.zzDecode64 $ PBW.getFromBS PBW.getVarInt $ Seq.index s
 getColInt64' :: BL.ByteString -> I.Int64
 getColInt64' = PBW.zzDecode64 . PBW.getFromBS PBW.getVarInt
 
+-- | retrive Int32 from a Row.
+getColInt32 :: Seq.Seq BL.ByteString  -- ^ a Row 
+            -> Int                    -- ^ column index 
+            -> I.Int32                -- ^ Int32
+getColInt32 seq idx = PBW.zzDecode32 $ PBW.getFromBS PBW.getVarInt $ Seq.index seq idx
+
+-- | from ByteString to Int32.
+getColInt32' :: BL.ByteString -> I.Int32
+getColInt32' = PBW.zzDecode32 . PBW.getFromBS PBW.getVarInt
+
 -- | remove null value from a ByteString.
 getColByteString :: Seq.Seq BL.ByteString -> Int -> BL.ByteString
 getColByteString seq idx = BL.take len byte
@@ -279,11 +290,12 @@ responseUpdateSql' nodeSess = do
 -- Convenience functions
 -- -----------------------------------------------------------------------------
 -- | Execute database operations with transaction.
-execSimpleTx :: String                 -- ^ Database
+execSimpleTx :: (MonadIO m, MonadThrow m, MonadCatch m, MonadMask m)
+             => String                 -- ^ Database
              -> String                 -- ^ User
              -> String                 -- ^ Password
-             -> (NodeSession -> IO ()) -- ^ some database operatoins 
-             -> IO ()
+             -> (NodeSession -> m a)   -- ^ some database operatoins 
+             -> m () 
 execSimpleTx database user pw func = 
   bracket
     (do -- first
@@ -306,23 +318,23 @@ execSimpleTx database user pw func =
        `catches` 
          [
            handleError (\ex -> do
-              print $ "catching XProtocolError : " ++ (show ex) 
+              liftIO $ print $ "catching XProtocolError : " ++ (show ex) 
               rollbackNodeSession nodeSess
               return ()
            )
          , handleWarn  (\ex -> do
-              print $ "catching XProtocolWarn : " ++ (show ex) 
+              liftIO $ print $ "catching XProtocolWarn : " ++ (show ex) 
               rollbackNodeSession nodeSess
               return ()
            )
          , handleException $ (\ex -> do
-             print $ "catching XProtocolException : " ++ (show ex) 
+             liftIO $ print $ "catching XProtocolException : " ++ (show ex) 
              rollbackNodeSession nodeSess
              return ()
            )
          -- The last resort.
          , Handler $ (\(ex :: SomeException) -> do
-             print $ "SomeException : " ++ (show ex)
+             liftIO $ print $ "SomeException : " ++ (show ex)
              rollbackNodeSession nodeSess
              return ()
            )
