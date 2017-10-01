@@ -20,6 +20,8 @@ module DataBase.MySQLX.Util
   ,insertUUIDIO
   ,getPasswordHash
   ,removeUnderscores
+  ,isJust
+  ,s2bs
   ,debug 
   ) where
 
@@ -38,6 +40,8 @@ import qualified Data.ByteString.Internal as BI
 import qualified Data.ByteString.Unsafe   as BU
 import qualified Data.ByteString.Lazy     as BL 
 import qualified Data.Int                 as I
+import qualified Data.Text                as T
+import           Data.Text.Encoding
 import qualified Data.Word                as W
 import           Data.UUID
 import           Data.UUID.V4
@@ -151,6 +155,20 @@ toHex bs
                             w -> do poke p (_hexDig $ w `shiftR` 4)
                                     poke (p `plusPtr` 1) (_hexDig $ w .&. 0xF)
                                     go (i+1) (p `plusPtr` 2)
+
+-- -----------------------------------------------------------------------------
+-- Maybe 
+-- -----------------------------------------------------------------------------
+isJust :: Maybe a -> Bool
+isJust x = case x of
+  Just y  -> True
+  Nothing -> False
+
+-- -----------------------------------------------------------------------------
+-- String conversion 
+-- -----------------------------------------------------------------------------
+s2bs :: String -> B.ByteString
+s2bs = encodeUtf8 . T.pack 
 
 -- -----------------------------------------------------------------------------
 -- Debug 
