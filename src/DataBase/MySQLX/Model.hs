@@ -134,6 +134,14 @@ getMessage bs = do
      Left  e -> error e -- throwM $ MessageGetException "foo" (typeOf bs)
      Right (w,_) -> return w 
 
+getMessageEither :: (PBW.Wire a, PBR.ReflectDescriptor a, PBT.TextMsg a, Typeable a) 
+    => B.ByteString 
+    -> Either String a 
+getMessageEither bs = do
+   case PBW.messageGet (BL.fromStrict bs) of
+     Left  e     -> Left e 
+     Right (w,_) -> Right w 
+
 --
 --  ByteString -> m Model
 --
@@ -1227,12 +1235,12 @@ getClientId = getSessionStateChangedVal PSSCP.CLIENT_ID_ASSIGNED "CLIENT_ID_ASSI
 getSessionStateChangedVal :: (MonadIO m, MonadThrow m, Scalarable a) => PSSCP.Parameter -> String -> PSSC.SessionStateChanged -> m a
 getSessionStateChangedVal p info ssc = do
   -- debug ssc
-  if PSSC.param ssc == p then 
-    case PSSC.value ssc of 
+  if PSSC.param ssc == p 
+    then case PSSC.value ssc of 
       Just s  -> getScalarVal' s 
       Nothing -> throwM $ XProtocolException $ "param is " ++ info ++ ", but Nothing"
-  else
-    throwM $ XProtocolException $ "param is not " ++ info ++ ", but " ++ (show $ PSSC.param ssc) 
+    else
+      throwM $ XProtocolException $ "param is not " ++ info ++ ", but " ++ (show $ PSSC.param ssc) 
 
 -- | Server message NO : ok = 0
 s_ok                                   =  0 :: Int
@@ -1256,7 +1264,7 @@ s_resultset_fetch_done                 = 14 :: Int
 s_resultset_fetch_suspended            = 15 :: Int
 -- | Server message NO : resultset_fetch_done_more_resultsets = 16
 s_resultset_fetch_done_more_resultsets = 16 :: Int
--- | Server message NO : resultset_fetch_done_more_out_params = 17
+-- | Server message NO : sql_stmt_execute_ok = 17
 s_sql_stmt_execute_ok                  = 17 :: Int
 -- | Server message NO : resultset_fetch_done_more_out_params = 18 
 s_resultset_fetch_done_more_out_params = 18 :: Int

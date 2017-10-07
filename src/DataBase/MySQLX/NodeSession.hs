@@ -38,6 +38,9 @@ module DataBase.MySQLX.NodeSession
   , repeatreadMessagesR
   -- * Helper functions
   , isSocketConnected
+  -- * Internal Use Only
+  , readMsgLengthR 
+  , readAllMsgR
   ) where
 
 -- general, standard library
@@ -133,11 +136,11 @@ openNodeSession sessionInfo = do
       case PFr.payload frm of
         Just x  -> do 
           changed <- getSessionStateChanged $ BL.toStrict x
-          debug changed
+          -- debug changed
           ok <- mkAuthenticateOk $ snd $ head xs 
-          debug ok 
+          -- debug ok 
           id <- getClientId changed
-          debug $ "NodeSession is opend; clientId =" ++ (show id)
+          -- debug $ "NodeSession is opend; clientId =" ++ (show id)
           return session {clientId = id} 
         Nothing -> throwM $ XProtocolException "Payload is Nothing"
     1  -> do                                            -- TODO
@@ -150,7 +153,7 @@ closeNodeSession ::  (MonadIO m, MonadThrow m) => NodeSession -> m ()
 closeNodeSession nodeSess = do
   runReaderT (sendClose >> recieveOk) nodeSess
   liftIO . close $ _socket nodeSess
-  debug "NodeSession is closed."
+  -- debug "NodeSession is closed."
   return ()
 
 -- | Make a socket for session.
@@ -177,14 +180,15 @@ _negociate :: (MonadIO m, MonadThrow m) => ReaderT NodeSession m [Message]
 _negociate = do
   sendCapabilitiesGet
   ret@(x:xs) <- readMessagesR 
-  if fst x == s_error then do
-    msg <- getError $ snd x
-    throwM $ XProtocolError msg
-  else do
-    -- cap <- getCapabilities $ snd x
-    -- debug cap
-    liftIO $ B.writeFile "memo/20180826_capabilities" $ snd x
-    return ret 
+  if fst x == s_error 
+    then do
+      msg <- getError $ snd x
+      throwM $ XProtocolError msg
+    else do
+      -- cap <- getCapabilities $ snd x
+      -- debug cap
+      liftIO $ B.writeFile "memo/20180826_capabilities" $ snd x
+      return ret 
 
 sendAuthenticateStart :: (MonadIO m) => String -> ReaderT NodeSession m () 
 sendAuthenticateStart = writeMessageR . mkAuthenticateStart
@@ -307,7 +311,7 @@ getOneMessageR = do
 readMessages :: (MonadIO m) => NodeSession -> m [Message]
 readMessages NodeSession{..} = do
    len <- runReaderT readMsgLengthR _socket
-   debug $ "1st length =" ++ (show $ getIntFromLE len)
+   -- debug $ "1st length =" ++ (show $ getIntFromLE len)
    ret <- runReaderT (readAllMsgR (fromIntegral $ getIntFromLE len)) _socket
    return ret
 
@@ -317,8 +321,8 @@ readMessagesEither NodeSession{..} = do
    -- debug $ "1st length =" ++ (show $ getIntFromLE len)
    ret <- runReaderT (readAllMsgR (fromIntegral $ getIntFromLE len)) _socket
    if hasError ret 
-   then return $ Left  ret -- Error
-   else return $ Right ret -- Success
+     then return $ Left  ret -- Error
+     else return $ Right ret -- Success
    where hasError r = length (filterError r) >= 1 
          filterError xs = filter (\(t,m) -> t == s_error) xs
 
@@ -334,15 +338,15 @@ repeatreadMessagesR :: (MonadIO m)
                     -> ReaderT NodeSession m ([Message], [Message]) -- ^ fst : Success messages, snd : Error messages
 repeatreadMessagesR noError num acc = do
   if num == 0
-  then return acc
-  else do
-    nodeSess <- ask
-    r <- readMessagesEither nodeSess
-    case r of
-      Left  m -> if noError 
-                 then return                              (fst acc        , m           )
-                 else repeatreadMessagesR noError (num-1) (fst acc        , snd acc ++ m)
-      Right m ->      repeatreadMessagesR noError (num-1) ((fst acc) ++ m , snd acc     )
+    then return acc
+    else do
+      nodeSess <- ask
+      r <- readMessagesEither nodeSess
+      case r of
+        Left  m -> if noError 
+                     then return                              (fst acc        , m           )
+                     else repeatreadMessagesR noError (num-1) (fst acc        , snd acc ++ m)
+        Right m ->        repeatreadMessagesR noError (num-1) ((fst acc) ++ m , snd acc     )
 
 readOneMessage :: (MonadIO m) => NodeSession -> m Message
 readOneMessage NodeSession{..} = runReaderT readOneMsgR _socket 
@@ -373,10 +377,10 @@ readNextMsgR :: (MonadIO m) => Int -> ReaderT Socket m (B.ByteString, B.ByteStri
 readNextMsgR len = do 
   bytes <- readSocketR (len + 4)
   return $ if B.length bytes == len 
-  then
-    (bytes, B.empty)
-  else 
-    B.splitAt len bytes
+    then
+      (bytes, B.empty)
+    else 
+      B.splitAt len bytes
 
 readOneMsgR :: (MonadIO m) => ReaderT Socket m Message
 readOneMsgR = do
@@ -392,18 +396,19 @@ readAllMsgR :: (MonadIO m) => Int -> ReaderT Socket m [Message]
 readAllMsgR len = do
   t <- readMsgTypeR
   let t' = byte2Int t   
-  if t' == s_sql_stmt_execute_ok then -- SQL_STMT_EXECUTE_OK is the last message and has no data.
-    return [(s_sql_stmt_execute_ok, B.empty)]
-  else do
-    -- debug $ "type=" ++ (show $ byte2Int t) ++ ", reading len=" ++ (show (len-1 `max` 0)) ++ " , plus 4 byte"
-    (msg, len) <- readNextMsgR (len-1)
-    -- debug $ (show msg) ++ " , next length of reading chunk byte is " ++ (show $ if B.null len then 0 else getIntFromLE len)
-    if B.null len 
-    then 
-      return [(t', msg)]
+  if t' == s_sql_stmt_execute_ok 
+    then -- SQL_STMT_EXECUTE_OK is the last message and has no data.
+      return [(s_sql_stmt_execute_ok, B.empty)]
     else do
-      msgs <- readAllMsgR $ fromIntegral $ getIntFromLE len
-      return $ (t', msg): msgs 
+      -- debug $ "type=" ++ (show $ byte2Int t) ++ ", reading len=" ++ (show (len-1 `max` 0)) ++ " , plus 4 byte"
+      (msg, len) <- readNextMsgR (len-1)
+      -- debug $ (show msg) ++ " , next length of reading chunk byte is " ++ (show $ if B.null len then 0 else getIntFromLE len)
+      if B.null len 
+        then 
+          return [(t', msg)]
+        else do
+          msgs <- readAllMsgR $ fromIntegral $ getIntFromLE len
+          return $ (t', msg): msgs 
 
 -- | Begin a transaction.
 begenTrxNodeSession :: (MonadIO m, MonadThrow m) => NodeSession -> m W.Word64
@@ -422,19 +427,17 @@ rollbackNodeSession = doSimpleSessionStateChangeStmt "rollback"
 -- 
 doSimpleSessionStateChangeStmt :: (MonadIO m, MonadThrow m) => String -> NodeSession -> m W.Word64
 doSimpleSessionStateChangeStmt sql nodeSess = do 
-  debug $ "session state change statement : " ++ sql
+  -- debug $ "session state change statement : " ++ sql
   runReaderT (writeMessageR (mkStmtExecuteSql sql [])) nodeSess
   ret@(x:xs) <- runReaderT readMessagesR nodeSess                           -- [Message]
-  if fst x == 1 then do
-    msg <- getError $ snd x
-    throwM $ XProtocolError msg
-  else do
-    frm <- (getFrame . snd ) $ head $ filter (\(t, b) -> t == s_notice) ret  -- Frame
-    ssc <- getPayloadSessionStateChanged frm
-    getRowsAffected ssc
-
-byte2Int :: B.ByteString -> Int
-byte2Int = fromIntegral . B.head
+  if fst x == 1 
+    then do
+      msg <- getError $ snd x
+      throwM $ XProtocolError msg
+    else do
+      frm <- (getFrame . snd ) $ head $ filter (\(t, b) -> t == s_notice) ret  -- Frame
+      ssc <- getPayloadSessionStateChanged frm
+      getRowsAffected ssc
 
 -- | check a raw socket connectin.
 isSocketConnected :: NodeSession -> IO Bool 
