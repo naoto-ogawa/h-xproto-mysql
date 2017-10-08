@@ -3,6 +3,8 @@ Haskell Client Library for MySQL XProtocol
 
 WORK IN PROGRESS, MANY CHANGES ARE EXPECTED.
 
+![Worklog](https://github.com/naoto-ogawa/h-xproto-mysql/wiki/WorkLog)
+
 Overview
 
 ## Description
