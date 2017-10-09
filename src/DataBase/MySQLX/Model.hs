@@ -901,11 +901,11 @@ mkExpectUnset = POp.Open (Just POCtx.EXPECT_CTX_EMPTY) (Seq.empty)
 mkOperatorIn     = POpe.Operator {POpe.name = PB.fromString "in"         , POpe.param = Seq.empty}
 mkOperatorNotIn  = POpe.Operator {POpe.name = PB.fromString "not_in"     , POpe.param = Seq.empty}
 
-xIn :: [PEx.Expr] -> PEx.Expr
-xIn = multiaryOperator mkOperatorIn 
+xIn :: PEx.Expr -> [PEx.Expr] -> PEx.Expr
+xIn iden params = multiaryOperator mkOperatorIn (iden : params)
 
-xNotIn :: [PEx.Expr] -> PEx.Expr
-xNotIn = multiaryOperator  mkOperatorNotIn
+xNotIn :: PEx.Expr -> [PEx.Expr] -> PEx.Expr
+xNotIn iden params = multiaryOperator  mkOperatorNotIn (iden : params)
 
 --   Ternary                                                TODO
 --   Units for date_add/date_sub                            TODO
