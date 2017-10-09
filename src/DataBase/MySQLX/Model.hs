@@ -896,6 +896,17 @@ mkExpectUnset = POp.Open (Just POCtx.EXPECT_CTX_EMPTY) (Seq.empty)
 {-Operator -}
 --   Unary                                                  TODO 
 --   Using special representation, with more than 2 params  TODO
+--     * ``in`` (param[0] IN (param[1], param[2], ...))
+--     * ``not_in`` (param[0] NOT IN (param[1], param[2], ...))
+mkOperatorIn     = POpe.Operator {POpe.name = PB.fromString "in"         , POpe.param = Seq.empty}
+mkOperatorNotIn  = POpe.Operator {POpe.name = PB.fromString "not_in"     , POpe.param = Seq.empty}
+
+xIn :: [PEx.Expr] -> PEx.Expr
+xIn = multiaryOperator mkOperatorIn 
+
+xNotIn :: [PEx.Expr] -> PEx.Expr
+xNotIn = multiaryOperator  mkOperatorNotIn
+
 --   Ternary                                                TODO
 --   Units for date_add/date_sub                            TODO
 --   Types for cast                                         TODO
@@ -951,7 +962,11 @@ mkOperatorCast    = POpe.Operator {POpe.name = PB.fromString "cast"       , POpe
 (cast)       = binaryOperator mkOperatorCast 
 
 binaryOperator :: POpe.Operator -> PEx.Expr -> PEx.Expr -> PEx.Expr 
-binaryOperator ope a b = PB.defaultValue { PEx.type' = PET.OPERATOR, PEx.operator = Just $ ope {POpe.param = Seq.fromList [a,b] } } 
+binaryOperator ope a b = multiaryOperator ope [a, b] 
+
+multiaryOperator :: POpe.Operator -> [PEx.Expr] -> PEx.Expr 
+multiaryOperator ope xs = PB.defaultValue { PEx.type' = PET.OPERATOR, PEx.operator = Just $ ope {POpe.param = Seq.fromList xs } } 
+
 
 mkOrderDirection                      :: POD.Direction                    
 mkOrderDirection                      = PB.defaultValue
