@@ -22,6 +22,7 @@ module DataBase.MySQLX.Util
   ,removeUnderscores
   ,isJust
   ,s2bs
+  ,byte2Int
   ,debug 
   ) where
 
@@ -155,6 +156,12 @@ toHex bs
                             w -> do poke p (_hexDig $ w `shiftR` 4)
                                     poke (p `plusPtr` 1) (_hexDig $ w .&. 0xF)
                                     go (i+1) (p `plusPtr` 2)
+
+-- -----------------------------------------------------------------------------
+-- Numeric  ByteString  
+-- -----------------------------------------------------------------------------
+byte2Int :: B.ByteString -> Int
+byte2Int = fromIntegral . B.head
 
 -- -----------------------------------------------------------------------------
 -- Maybe 
