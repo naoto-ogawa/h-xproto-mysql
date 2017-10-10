@@ -649,7 +649,7 @@ class Exprable a where
   expr    :: a -> PEx.Expr 
   -- | Retrieve a value from Expr safely.
   exprVal :: PEx.Expr -> Maybe a
-  exprVal = error "not implmented. Submit an issue." -- undefined      -- TODO impiementations
+  -- exprVal = error "not implmented. Submit an issue." -- undefined      -- TODO impiementations
   -- | Retrieve a value from Expr.
   exprVal' :: PEx.Expr -> a
   exprVal' = M.fromJust . exprVal 
@@ -680,6 +680,12 @@ instance Exprable String  where
   expr    = exprLiteral . scalar
   exprVal = join . fmap getScalarVal . PEx.literal
 instance Exprable T.Text  where 
+  expr    = exprLiteral . scalar
+  exprVal = join . fmap getScalarVal . PEx.literal
+instance Exprable BL.ByteString where 
+  expr    = exprLiteral . scalar
+  exprVal = join . fmap getScalarVal . PEx.literal
+instance Exprable B.ByteString where 
   expr    = exprLiteral . scalar
   exprVal = join . fmap getScalarVal . PEx.literal
 
@@ -898,8 +904,13 @@ mkExpectUnset = POp.Open (Just POCtx.EXPECT_CTX_EMPTY) (Seq.empty)
 --   Using special representation, with more than 2 params  TODO
 --     * ``in`` (param[0] IN (param[1], param[2], ...))
 --     * ``not_in`` (param[0] NOT IN (param[1], param[2], ...))
+
+mkOperatorNot :: POpe.Operator -> POpe.Operator 
+mkOperatorNot ope = ope {POpe.name = preUtf8 "not_" (POpe.name ope)}
+-- mkOperatorNot ope = ope {POpe.name = PB.Utf8 $ (toByteString ("not_":: [Char])) `BL.append` (PBH.utf8 $ POpe.name ope)}
+
 mkOperatorIn     = POpe.Operator {POpe.name = PB.fromString "in"         , POpe.param = Seq.empty}
-mkOperatorNotIn  = POpe.Operator {POpe.name = PB.fromString "not_in"     , POpe.param = Seq.empty}
+mkOperatorNotIn  = mkOperatorNot mkOperatorIn 
 
 xIn :: PEx.Expr -> [PEx.Expr] -> PEx.Expr
 xIn iden params = multiaryOperator mkOperatorIn (iden : params)
@@ -984,8 +995,20 @@ mkReset                               :: PRe.Reset
 mkReset                               = PB.defaultValue
 mkRow                                 :: PR.Row                                
 mkRow                                 = PB.defaultValue
+
+{- Octets -}
 mkScalarOctets                        :: PSO.Octets                      
 mkScalarOctets                        = PB.defaultValue
+
+-- | Make a scalar of Octet type from Lazy ByteString
+scalarOctets :: BL.ByteString -> PSO.Octets
+scalarOctets x = PB.defaultValue {PSO.value = x}
+
+-- | Make a scalar of Octet type from strict ByteString
+scalarOctets' :: B.ByteString -> PSO.Octets
+scalarOctets' x = PB.defaultValue {PSO.value = BL.fromStrict x}
+
+
 {- String  -}
 mkScalarString                        :: PSS.String                      
 mkScalarString                        = PB.defaultValue
@@ -1077,6 +1100,16 @@ instance Scalarable T.Text   where
   scalar x = PB.defaultValue {PS.type' = PST.V_STRING, PS.v_string       = Just $ scalarString (T.unpack x)}
   getScalarVal PS.Scalar{..} = (TE.decodeUtf8 . BL.toStrict . PSS.value) <$> v_string
   getScalarVal' x = _getScalarVal' PST.V_STRING PS.v_string (TE.decodeUtf8 . BL.toStrict . PSS.value) "V_STRING" x
+
+instance Scalarable BL.ByteString where
+   scalar x = PB.defaultValue {PS.type' = PST.V_OCTETS, PS.v_octets = Just $ scalarOctets x}
+   getScalarVal PS.Scalar{..} = PSO.value <$> v_octets 
+   getScalarVal' x = _getScalarVal' PST.V_OCTETS PS.v_octets PSO.value "V_OCTETS" x
+
+instance Scalarable B.ByteString where
+   scalar x = PB.defaultValue {PS.type' = PST.V_OCTETS, PS.v_octets = Just $ scalarOctets' x}
+   getScalarVal PS.Scalar{..} = BL.toStrict . PSO.value <$> v_octets
+   getScalarVal' x = _getScalarVal' PST.V_OCTETS PS.v_octets (BL.toStrict . PSO.value) "V_OCTETS" x
 
 -- | Nothing to be converted to a Null Scalar.
 instance (Scalarable a) => Scalarable (Maybe a) where
