@@ -211,7 +211,7 @@ bracket
 
 ## Author
 
-[naoto-gawa](https://github.com/naoto-ogawa)
+[naoto-ogawa](https://github.com/naoto-ogawa)
 
 ## References
 
