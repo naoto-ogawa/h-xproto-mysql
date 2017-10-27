@@ -51,6 +51,7 @@ instance Exprable JSONT.Value where
   expr (JSON.String v) = expr v 
   expr (JSON.Bool   v) = expr v 
   expr (JSON.Null    ) = mkNullExpr
+  exprVal _            = error "not implemented"
 
 -- | JSON Object modification parser. 
 -- see http://d.hatena.ne.jp/melpon/20111026/1319602571
