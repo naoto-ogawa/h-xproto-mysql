@@ -61,7 +61,9 @@ retrieveRow nm = do
 --
 -- example
 -- > generated_function :: Seq ByteStringString -> MyRecord
--- > generated_function seq = MyRecord (getVal $ Seq.index seq 0) (getVal $ Seq.index seq 1) (getVal $ Seq.index seq 2)
+-- > generated_function seq = MyRecord (getValFromSeq $ Seq.index seq 0) 
+--                                     (getValFromSeq $ Seq.index seq 1) 
+--                                     (getValFromSeq $ Seq.index seq 2)
 --
 retrieveRow' :: Name   -- ^ data construcotr
              -> Int    -- ^ number of parameters
