@@ -20,6 +20,7 @@ module DataBase.MySQLX.Model  where
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Any.Type                           as PAT
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Any                                as PA
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Array                              as PAR
+import qualified Com.Mysql.Cj.Mysqlx.Protobuf.ArrayExpr                          as PAREx
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.AuthenticateContinue               as PAC
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.AuthenticateOk                     as PAO
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.AuthenticateStart                  as PAS
@@ -390,9 +391,8 @@ instance Anyable PS.Scalar where any = mkAnyScalar
 instance Anyable PO.Object where any = mkAnyObject
 instance Anyable PAR.Array where any = mkAnyArray
 
--- data Array = Array{value :: !(P'.Seq Com.Mysql.Cj.Mysqlx.Protobuf.Expr)}
 -- | Make a Array instance.
-mkArray :: [PEx.Expr] -> PAR.Array                              
+mkArray :: [PA.Any] -> PAR.Array
 mkArray xs = PAR.Array {value = Seq.fromList xs}
 
 -- | Make an authenticate continue instance.
@@ -705,7 +705,7 @@ instance Exprable [POFE.ObjectFieldExpr] where
   exprVal = fmap F.toList . fmap POE.fld . PEx.object
 
 -- ARRAY
-instance Exprable PAR.Array where
+instance Exprable PAREx.ArrayExpr where
   expr a  = PB.defaultValue {PEx.type' = PET.ARRAY     , PEx.array         = Just a}
   exprVal = PEx.array
 
@@ -1222,11 +1222,11 @@ instance UpdateOperatable String
 instance UpdateOperatable Text
 
 -- | Make an update array insert operation.
-updateArrayInsert :: String -> PAR.Array -> PUO.UpdateOperation
+updateArrayInsert :: String -> PAREx.ArrayExpr -> PUO.UpdateOperation
 updateArrayInsert ident arr = mkUpdateOperationArrayInsert (columnIdentifierDocumentPahtItem [mkDocumentPathItem ident]) (expr arr)
 
 -- | Make an update array append operation.
-updateArrayAppend :: String -> PAR.Array -> PUO.UpdateOperation
+updateArrayAppend :: String -> PAREx.ArrayExpr -> PUO.UpdateOperation
 updateArrayAppend ident arr = mkUpdateOperationArrayAppend (columnIdentifierDocumentPahtItem [mkDocumentPathItem ident]) (expr arr)
 
 mkViewAlgorithm                       :: PVA.ViewAlgorithm                      
