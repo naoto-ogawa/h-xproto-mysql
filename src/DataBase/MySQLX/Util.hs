@@ -21,6 +21,9 @@ module DataBase.MySQLX.Util
   ,getPasswordHash
   ,removeUnderscores
   ,isJust
+  ,preUtf8
+  ,suffUtf8
+  ,mapUtf8
   ,s2bs
   ,byte2Int
   ,debug 
@@ -36,7 +39,7 @@ import           Data.Binary.Put
 import qualified Data.ByteArray           as DBA
 import qualified Data.ByteString          as B
 import           Data.ByteString.Builder
-import           Data.ByteString.Conversion.To
+import           Data.ByteString.Conversion.To as Conv
 import qualified Data.ByteString.Internal as BI
 import qualified Data.ByteString.Unsafe   as BU
 import qualified Data.ByteString.Lazy     as BL 
@@ -50,6 +53,9 @@ import           Data.UUID.V4
 import Data.Bits
 import Foreign.Ptr
 import Foreign.Storable
+
+-- protocol buffer library
+import qualified Text.ProtocolBuffers                as PB
 
 -- -----------------------------------------------------------------------------
 -- 
@@ -156,6 +162,21 @@ toHex bs
                             w -> do poke p (_hexDig $ w `shiftR` 4)
                                     poke (p `plusPtr` 1) (_hexDig $ w .&. 0xF)
                                     go (i+1) (p `plusPtr` 2)
+
+-- -----------------------------------------------------------------------------
+-- Utf8 
+-- -----------------------------------------------------------------------------
+-- | Append string before Utf8.
+preUtf8 :: String -> PB.Utf8 -> PB.Utf8
+preUtf8 prefix bsUtf8 = PB.Utf8 $ (Conv.toByteString prefix) `BL.append` (PB.utf8 bsUtf8)
+
+-- | Append string after Utf8.
+suffUtf8 :: PB.Utf8 -> String -> PB.Utf8
+suffUtf8 bsUtf8 suffix = PB.Utf8 $ (PB.utf8 bsUtf8) `BL.append` (Conv.toByteString suffix)
+
+-- | fmap-like function for Utf8
+mapUtf8 :: (BL.ByteString -> BL.ByteString) -> PB.Utf8 -> PB.Utf8 
+mapUtf8 f bsUtf8 = PB.Utf8 $ f (PB.utf8 bsUtf8) 
 
 -- -----------------------------------------------------------------------------
 -- Numeric  ByteString  
