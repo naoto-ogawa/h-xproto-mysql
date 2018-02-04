@@ -33,6 +33,7 @@ module DataBase.MySQLX.Statement
   ,getColMetaName
    -- ** Convenience functions
   ,execSimpleTx
+  ,execSimpleTx'
    -- ** Generic Sql operations
   ,sendStmtExecuteSql 
   ,responseUpdateSql' 
@@ -44,7 +45,6 @@ import Control.Exception.Safe
 import Control.Monad
 import Control.Monad.Trans.Reader
 import Control.Monad.IO.Class
-
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as BL 
 import qualified Data.Int             as I
@@ -53,6 +53,8 @@ import qualified Data.Text            as T
 import qualified Data.Text.Encoding   as TE
 import qualified Data.Maybe           as M
 import qualified Data.Word            as W
+
+-- import Network.Socket.Types
 
 -- generated library
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Any                                as PA
@@ -71,6 +73,7 @@ import qualified Text.ProtocolBuffers                as PB
 import DataBase.MySQLX.Exception
 import DataBase.MySQLX.NodeSession 
 import DataBase.MySQLX.Model
+import DataBase.MySQLX.ResultSet
 import DataBase.MySQLX.Util
 
 -- -----------------------------------------------------------------------------
@@ -103,7 +106,7 @@ executeSql sql param nodeSess = do
 executeRawSqlMetaData :: (MonadIO m, MonadThrow m) 
                       => String            -- ^ SQL string
                       -> NodeSession       -- ^ Node sessin
-                      -> m (Seq.Seq PCMD.ColumnMetaData, [Seq.Seq BL.ByteString]) -- ^ Result Set tuple (metadata, result)
+                      -> m (ResultSetMetaData, [Seq.Seq BL.ByteString]) -- ^ Result Set tuple (metadata, result)
 executeRawSqlMetaData sql nodeSess = executeSqlMetaData sql [] nodeSess 
 
 -- | Select binding Interface with meta data
@@ -111,7 +114,7 @@ executeSqlMetaData :: (MonadIO m, MonadThrow m)
                      => String             -- ^ SQL string
                      -> [PA.Any]           -- ^ parameters
                      -> NodeSession        -- ^ Node session 
-                     -> m (Seq.Seq PCMD.ColumnMetaData, [Seq.Seq BL.ByteString]) -- ^ Result Set tuple (metadata, result)
+                     -> m (ResultSetMetaData, [Seq.Seq BL.ByteString]) -- ^ Result Set tuple (metadata, result)
 executeSqlMetaData sql param nodeSess = do
   runReaderT (sendStmtExecuteSql sql param) nodeSess
   ret <- runReaderT readMessagesR nodeSess
@@ -189,15 +192,15 @@ instance ColumnValuable String  where toColVal = getColString' . cutNull
 -- Retrive ResultSet MetaData
 --
 -- | get a type of column.
-getColMetaType :: Seq.Seq PCMD.ColumnMetaData -> Int -> PCMDFT.FieldType 
+getColMetaType :: ResultSetMetaData -> Int -> PCMDFT.FieldType 
 getColMetaType meta idx = getColumnType $ Seq.index meta idx 
 
 -- | get a name of column.
-getColMetaName :: Seq.Seq PCMD.ColumnMetaData -> Int -> T.Text
+getColMetaName :: ResultSetMetaData -> Int -> T.Text
 getColMetaName meta idx = getColumnName $ Seq.index meta idx 
 
 -- | get a content type of column.
-getColMetaContentType :: Seq.Seq PCMD.ColumnMetaData -> Int -> ColumnContentType 
+getColMetaContentType :: ResultSetMetaData -> Int -> ColumnContentType 
 getColMetaContentType meta idx = getContentType $ Seq.index meta idx 
 
 -- -----------------------------------------------------------------------------
@@ -267,7 +270,7 @@ responseUpdateSql' nodeSess = do
   ret@(x:xs) <- runReaderT readMessagesR nodeSess
   if fst x == s_error then do
     msg <- getError $ snd x
-    debug msg
+    -- debug msg
     return (Nothing, 0)
     -- throwM $ XProtocolError msg
   else do 
@@ -291,16 +294,29 @@ responseUpdateSql' nodeSess = do
 -- -----------------------------------------------------------------------------
 -- | Execute database operations with transaction.
 execSimpleTx :: (MonadIO m, MonadThrow m, MonadCatch m, MonadMask m)
-             => String                 -- ^ Database
+             => String                 -- ^ Database 
              -> String                 -- ^ User
              -> String                 -- ^ Password
              -> (NodeSession -> m a)   -- ^ some database operatoins 
              -> m () 
-execSimpleTx database user pw func = 
+execSimpleTx = execSimpleTx' "127.0.0.1" 33060 
+
+-- | Execute database operations with transaction.
+execSimpleTx' :: (MonadIO m, MonadThrow m, MonadCatch m, MonadMask m)
+             => String                 -- ^ IP
+             -> Int                    -- ^ Port
+             -> String                 -- ^ Database 
+             -> String                 -- ^ User
+             -> String                 -- ^ Password
+             -> (NodeSession -> m a)   -- ^ some database operatoins 
+             -> m () 
+execSimpleTx' host port database user pw func = 
   bracket
     (do -- first
        nodeSess <- openNodeSession $ defaultNodeSesssionInfo {
-                                       database = database
+                                       host     = host
+                                     , port     = toEnum port
+                                     , database = database
                                      , user     = user
                                      , password = pw
                                      }
