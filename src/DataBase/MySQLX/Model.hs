@@ -17,10 +17,12 @@ Interface for X Protocol Protocol Buffer.
 
 module DataBase.MySQLX.Model  where
 
+import Prelude as P
+
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Any.Type                           as PAT
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Any                                as PA
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Array                              as PAR
-import qualified Com.Mysql.Cj.Mysqlx.Protobuf.ArrayExpr                          as PAREx
+import qualified Com.Mysql.Cj.Mysqlx.Protobuf.ArrayAny                           as PARAny
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.AuthenticateContinue               as PAC
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.AuthenticateOk                     as PAO
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.AuthenticateStart                  as PAS
@@ -60,8 +62,8 @@ import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Limit                             
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.ModifyView                         as PMV
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Object.ObjectField                 as POF
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Object                             as PO
-import qualified Com.Mysql.Cj.Mysqlx.Protobuf.ObjectExpr.ObjectFieldExpr         as POFE
-import qualified Com.Mysql.Cj.Mysqlx.Protobuf.ObjectExpr                         as POE
+import qualified Com.Mysql.Cj.Mysqlx.Protobuf.ObjectAny.ObjectFieldAny           as POFAny
+import qualified Com.Mysql.Cj.Mysqlx.Protobuf.ObjectAny                          as POAny
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Ok                                 as POk
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Open.Condition.ConditionOperation  as POCCO
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Open.Condition                     as POC
@@ -109,7 +111,7 @@ import Data.ByteString.Builder
 import Data.ByteString.Conversion.To
 import qualified Data.Foldable        as F
 import Data.Int                       as I
-import Data.List (find)
+import qualified Data.List            as L (find, intercalate)
 import Data.Maybe                     as M
 import Data.Sequence                  as Seq
 import Data.String
@@ -153,6 +155,8 @@ getAny                                 :: (MonadThrow m) => B.ByteString -> m PA
 getAny                                 = getMessage 
 getArray                               :: (MonadThrow m) => B.ByteString -> m PAR.Array                              
 getArray                               = getMessage
+getArrayAny                            :: (MonadThrow m) => B.ByteString -> m PARAny.ArrayAny
+getArrayAny                            = getMessage
 getAuthenticateContinue                :: (MonadThrow m) => B.ByteString -> m PAC.AuthenticateContinue
 getAuthenticateContinue                = getMessage 
 getAuthenticateOk                      :: (MonadThrow m) => B.ByteString -> m PAO.AuthenticateOk
@@ -352,12 +356,12 @@ mkAnyScalar :: PS.Scalar -> PA.Any
 mkAnyScalar x = PB.defaultValue {PA.type' = PAT.SCALAR, PA.scalar = Just x}
 
 -- | Make an OBJECT type Any. Don't use this function, use any. (TODO hiding)
-mkAnyObject :: PO.Object -> PA.Any
-mkAnyObject x = PB.defaultValue {PA.type' = PAT.OBJECT, PA.obj = Just x}
+mkAnyObjectAny :: POAny.ObjectAny -> PA.Any
+mkAnyObjectAny x = PB.defaultValue {PA.type' = PAT.OBJECT, PA.obj = Just x}
 
 -- | Make a ARRAY type Any. Don't use this function, use any. (TODO hiding)
-mkAnyArray :: PAR.Array -> PA.Any
-mkAnyArray x = PB.defaultValue {PA.type' = PAT.ARRAY, PA.array = Just x}
+mkAnyArrayAny :: PARAny.ArrayAny -> PA.Any
+mkAnyArrayAny x = PB.defaultValue {PA.type' = PAT.ARRAY, PA.array = Just x}
 
 {-
 data Any = Any{
@@ -377,7 +381,7 @@ class    Anyable a        where
   any :: a -> PA.Any
   -- | Make a list of Any instance.
   anys :: [a] -> [PA.Any] 
-  anys = Prelude.map DataBase.MySQLX.Model.any 
+  anys = P.map DataBase.MySQLX.Model.any 
 instance Anyable Int       where any = mkAnyScalar . scalar
 instance Anyable Int64     where any = mkAnyScalar . scalar
 instance Anyable Word8     where any = mkAnyScalar . scalar
@@ -388,12 +392,16 @@ instance Anyable Bool      where any = mkAnyScalar . scalar
 instance Anyable String    where any = mkAnyScalar . scalar
 instance Anyable Text      where any = mkAnyScalar . scalar
 instance Anyable PS.Scalar where any = mkAnyScalar
-instance Anyable PO.Object where any = mkAnyObject
-instance Anyable PAR.Array where any = mkAnyArray
+instance Anyable POAny.ObjectAny where any = mkAnyObjectAny
+instance Anyable PARAny.ArrayAny where any = mkAnyArrayAny
 
--- | Make a Array instance.
-mkArray :: [PA.Any] -> PAR.Array
-mkArray xs = PAR.Array {value = Seq.fromList xs}
+-- | Make a ArrayAny instance.
+mkArrayAny :: [PA.Any] -> PARAny.ArrayAny                              
+mkArrayAny xs = PARAny.ArrayAny {value = Seq.fromList xs}
+
+-- | Make a Array  instance.
+mkArray  :: [PEx.Expr] -> PAR.Array 
+mkArray  xs = PAR.Array  {value = Seq.fromList xs}
 
 -- | Make an authenticate continue instance.
 mkAuthenticateContinue :: (ToByteString a, ToByteString b, ToByteString c, ToByteString d) 
@@ -423,14 +431,23 @@ mkAuthenticateStart user = PB.defaultValue {
   , PAS.auth_data = Just $ toByteString user
   }
 
-mkCapabilities                        :: PCs.Capabilities                       
-mkCapabilities                        = PB.defaultValue
+mkCapabilities :: [PC.Capability] -> PCs.Capabilities                       
+mkCapabilities xs = PCs.Capabilities (Seq.fromList xs)
+
+
+
 mkCapabilitiesGet                     :: PCG.CapabilitiesGet                    
 mkCapabilitiesGet                     = PB.defaultValue
 mkCapabilitiesSet                     :: PCS.CapabilitiesSet                    
 mkCapabilitiesSet                     = PB.defaultValue
-mkCapability                          :: PC.Capability                         
-mkCapability                          = PB.defaultValue
+
+-- data Capability = Capability{name :: !(P'.Utf8), value :: !(Com.Mysql.Cj.Mysqlx.Protobuf.Any)}
+-- mkCapability                          :: PC.Capability                         
+-- mkCapability                          = PB.defaultValue
+
+mkCapability val any = PC.Capability (PBH.uFromString val) any
+
+
 mkClientMessagesType                 :: PCMT.Type                
 mkClientMessagesType                 = PB.defaultValue
 mkClientMessages                      :: PCM.ClientMessages                     
@@ -459,17 +476,34 @@ mkColumn                              = PB.defaultValue
 mkColumnIdentifier                    :: PCI.ColumnIdentifier 
 mkColumnIdentifier                    = PB.defaultValue
 
+columnIdentifierNameDocumentPahtItem :: String -> [PDPI.DocumentPathItem] -> PCI.ColumnIdentifier 
+columnIdentifierNameDocumentPahtItem nm docpathItems = addColumnIdentifierName  (columnIdentifierDocumentPahtItem docpathItems) nm
+
 columnIdentifierDocumentPahtItem :: [PDPI.DocumentPathItem] -> PCI.ColumnIdentifier 
 columnIdentifierDocumentPahtItem docpathItems = PB.defaultValue {PCI.document_path = Seq.fromList docpathItems} 
 
 columnIdentifierName :: String -> PCI.ColumnIdentifier 
 columnIdentifierName x = PB.defaultValue {PCI.name = Just $ PBH.uFromString x} 
 
+addColumnIdentifierName :: PCI.ColumnIdentifier -> String -> PCI.ColumnIdentifier 
+addColumnIdentifierName iden x = iden {PCI.name = Just $ PBH.uFromString x} 
+
 columnIdentifierTableName :: String -> PCI.ColumnIdentifier 
 columnIdentifierTableName x = PB.defaultValue {PCI.table_name = Just $ PBH.uFromString x} 
 
+addColumnIdentifierTableName :: PCI.ColumnIdentifier -> String -> PCI.ColumnIdentifier 
+addColumnIdentifierTableName iden x = iden {PCI.table_name = Just $ PBH.uFromString x} 
+
 columnIdentifierSchemaName :: String -> PCI.ColumnIdentifier 
 columnIdentifierSchemaName x = PB.defaultValue {PCI.schema_name = Just $ PBH.uFromString x} 
+
+addColumnIdentifierSchemaName :: PCI.ColumnIdentifier -> String -> PCI.ColumnIdentifier 
+addColumnIdentifierSchemaName iden x = iden {PCI.schema_name = Just $ PBH.uFromString x} 
+
+addColumnIdentifier' :: PCI.ColumnIdentifier -> String -> PCI.ColumnIdentifier
+addColumnIdentifier' iden name = iden {
+   PCI.name       = Just $ PBH.uFromString name
+  }
 
 columnIdentifier'' :: String -> String -> PCI.ColumnIdentifier
 columnIdentifier'' table name = PB.defaultValue {
@@ -477,8 +511,21 @@ columnIdentifier'' table name = PB.defaultValue {
   ,PCI.name       = Just $ PBH.uFromString name
   }
 
+addColumnIdentifier'' :: PCI.ColumnIdentifier -> String -> String -> PCI.ColumnIdentifier
+addColumnIdentifier'' iden table name = iden {
+   PCI.table_name = Just $ PBH.uFromString table
+  ,PCI.name       = Just $ PBH.uFromString name
+  }
+
 columnIdentifier''' :: String -> String -> String -> PCI.ColumnIdentifier
 columnIdentifier''' schema table name = PB.defaultValue {
+   PCI.schema_name = Just $ PBH.uFromString schema
+  ,PCI.table_name  = Just $ PBH.uFromString table
+  ,PCI.name        = Just $ PBH.uFromString name
+  } 
+
+addColumnIdentifier''' :: PCI.ColumnIdentifier -> String -> String -> String -> PCI.ColumnIdentifier
+addColumnIdentifier''' iden schema table name = iden {
    PCI.schema_name = Just $ PBH.uFromString schema
   ,PCI.table_name  = Just $ PBH.uFromString table
   ,PCI.name        = Just $ PBH.uFromString name
@@ -620,12 +667,19 @@ mkDelete                              = PB.defaultValue
 mkDocumentPathItemType                :: PDPIT.Type              
 mkDocumentPathItemType                = PB.defaultValue
 
+mkDoubleAsterisk :: PDPI.DocumentPathItem  
+mkDoubleAsterisk     = PB.defaultValue { PDPI.type' = PDPIT.DOUBLE_ASTERISK      }
+mkMemberAsterisk     = PB.defaultValue { PDPI.type' = PDPIT.MEMBER_ASTERISK      }
+mkArrayIndexAsterisk = PB.defaultValue { PDPI.type' = PDPIT.ARRAY_INDEX_ASTERISK }
+mkArrayIndex idx     = PB.defaultValue { PDPI.type' = PDPIT.ARRAY_INDEX         , PDPI.index =  Just $ (idx :: Word32)     }
+mkMember     val     = PB.defaultValue { PDPI.type' = PDPIT.MEMBER             , PDPI.value =  Just $ PBH.uFromString val }
+
 {- DocumentPathItem -}
 mkDocumentPathItem :: String -> PDPI.DocumentPathItem 
 mkDocumentPathItem ('*':'*':_     ) = PB.defaultValue { PDPI.type' = PDPIT.DOUBLE_ASTERISK }
 mkDocumentPathItem ('*':_         ) = PB.defaultValue { PDPI.type' = PDPIT.MEMBER_ASTERISK }
 mkDocumentPathItem ('[':'*':']':_ ) = PB.defaultValue { PDPI.type' = PDPIT.ARRAY_INDEX_ASTERISK }
-mkDocumentPathItem ('[':xs        ) = PB.defaultValue { PDPI.type' = PDPIT.ARRAY_INDEX         , PDPI.index =  Just $ (read (Prelude.init xs) :: Word32) }
+mkDocumentPathItem ('[':xs        ) = PB.defaultValue { PDPI.type' = PDPIT.ARRAY_INDEX         , PDPI.index =  Just $ (read (P.init xs) :: Word32) }
 mkDocumentPathItem (x             ) = PB.defaultValue { PDPI.type' = PDPIT.MEMBER              , PDPI.value =  Just $ PBH.uFromString x }
 
 mkDropView                            :: PDV.DropView                           
@@ -695,17 +749,17 @@ instance Exprable PFC.FunctionCall where
   exprVal = PEx.function_call 
 
 -- OBJECT 
-instance Exprable POE.ObjectExpr where 
+instance Exprable PO.Object where 
   expr a = PB.defaultValue {PEx.type' = PET.OBJECT    , PEx.object        = Just a}
   exprVal = PEx.object
 
--- ObjectFieldExpr -> OBJECT
-instance Exprable [POFE.ObjectFieldExpr] where 
-  expr as = expr $ setObjectExpr as
-  exprVal = fmap F.toList . fmap POE.fld . PEx.object
+-- ObjectField -> OBJECT
+instance Exprable [POF.ObjectField] where 
+  expr as = expr $ setObject as
+  exprVal = fmap F.toList . fmap PO.fld . PEx.object
 
 -- ARRAY
-instance Exprable PAREx.ArrayExpr where
+instance Exprable PAR.Array where
   expr a  = PB.defaultValue {PEx.type' = PET.ARRAY     , PEx.array         = Just a}
   exprVal = PEx.array
 
@@ -724,23 +778,23 @@ exprPlaceholder :: Int -> PEx.Expr
 exprPlaceholder pos = PB.defaultValue {PEx.type' = PET.PLACEHOLDER, PEx.position = Just $ fromIntegral pos }
 
 -- | 1st placeholder.
-ph1 = exprPlaceholder 1
+ph1 = exprPlaceholder 0
 -- | 2nd placeholder.
-ph2 = exprPlaceholder 2
+ph2 = exprPlaceholder 1
 -- | 3rd placeholder.
-ph3 = exprPlaceholder 3
+ph3 = exprPlaceholder 2
 -- | 4th placeholder.
-ph4 = exprPlaceholder 4
+ph4 = exprPlaceholder 3
 -- | 5th placeholder.
-ph5 = exprPlaceholder 5
+ph5 = exprPlaceholder 4
 -- | 6th placeholder.
-ph6 = exprPlaceholder 6
+ph6 = exprPlaceholder 5
 -- | 7th placeholder.
-ph7 = exprPlaceholder 7
+ph7 = exprPlaceholder 6
 -- | 8th placeholder.
-ph8 = exprPlaceholder 8
+ph8 = exprPlaceholder 7
 -- | 9th placeholder.
-ph9 = exprPlaceholder 9
+ph9 = exprPlaceholder 8
 
 exprIdentifierName :: String -> PEx.Expr
 exprIdentifierName = exprColumnIdentifier . columnIdentifierName
@@ -772,6 +826,13 @@ mkFunctionCall ::
   -> [PEx.Expr]         -- ^ parameters
   -> PFC.FunctionCall
 mkFunctionCall name params = PFC.FunctionCall (mkIdentifier' name) (Seq.fromList params) 
+
+mkFunctionCall' :: 
+     String             -- ^ function name
+  -> String             -- ^ schema name
+  -> [PEx.Expr]         -- ^ parameters
+  -> PFC.FunctionCall
+mkFunctionCall' name schema params = PFC.FunctionCall (mkIdentifier name schema) (Seq.fromList params) 
 
 {- Identifier -}
 mkIdentifier :: String -> String -> PI.Identifier
@@ -818,13 +879,13 @@ mkLimit' num = PL.Limit (fromIntegral num) Nothing
 
 mkModifyView                          :: PMV.ModifyView                         
 mkModifyView                          = PB.defaultValue
-{- ObjectField -}
-mkObjectField :: String -> PA.Any -> POF.ObjectField
-mkObjectField k a = POF.ObjectField {POF.key = (PBH.uFromString k), POF.value = a}
+{- ObjectFieldAny -}
+mkObjectFieldAny :: String -> PA.Any -> POFAny.ObjectFieldAny
+mkObjectFieldAny k a = POFAny.ObjectFieldAny {POFAny.key = (PBH.uFromString k), POFAny.value = a}
 
-{- ObjectFieldExpr -}
-mkObjectFieldExpr :: String -> PEx.Expr -> POFE.ObjectFieldExpr
-mkObjectFieldExpr k a = POFE.ObjectFieldExpr {POFE.key = (PBH.uFromString k), POFE.value = a}
+{- ObjectField -}
+mkObjectField :: String -> PEx.Expr -> POF.ObjectField
+mkObjectField k a = POF.ObjectField {POF.key = (PBH.uFromString k), POF.value = a}
 
 {- Object -}
 mkObject                              :: PO.Object                             
@@ -833,12 +894,12 @@ mkObject                              = PB.defaultValue
 setObject :: [POF.ObjectField] -> PO.Object
 setObject xs = PO.Object $ Seq.fromList xs
 
-{- ObjectExpr -}
-mkObjectExpr                          :: POE.ObjectExpr                             
-mkObjectExpr                          = PB.defaultValue
+{- Object -}
+mkObjectAny                          :: POAny.ObjectAny
+mkObjectAny                          = PB.defaultValue
 
-setObjectExpr :: [POFE.ObjectFieldExpr] -> POE.ObjectExpr
-setObjectExpr xs = POE.ObjectExpr $ Seq.fromList xs
+setObjectAny :: [POFAny.ObjectFieldAny] -> POAny.ObjectAny
+setObjectAny xs = POAny.ObjectAny $ Seq.fromList xs
 
 mkOk                                  :: POk.Ok                                 
 mkOk                                  = PB.defaultValue
@@ -900,51 +961,102 @@ mkExpectUnset = POp.Open (Just POCtx.EXPECT_CTX_EMPTY) (Seq.empty)
 
 
 {-Operator -}
---   Unary                                                  TODO 
+mkOperator :: String -> POpe.Operator 
+mkOperator op = POpe.Operator {POpe.name = PB.fromString op, POpe.param = Seq.empty}
+--   Unary
+--     * ``!``
+--     * ``sign_plus``
+--     * ``sign_minus``
+--     * ``~``
+
+xPlus :: PEx.Expr -> PEx.Expr 
+xPlus x = undefined 
+
+
+
 --   Using special representation, with more than 2 params  TODO
 --     * ``in`` (param[0] IN (param[1], param[2], ...))
 --     * ``not_in`` (param[0] NOT IN (param[1], param[2], ...))
 
 mkOperatorNot :: POpe.Operator -> POpe.Operator 
 mkOperatorNot ope = ope {POpe.name = preUtf8 "not_" (POpe.name ope)}
--- mkOperatorNot ope = ope {POpe.name = PB.Utf8 $ (toByteString ("not_":: [Char])) `BL.append` (PBH.utf8 $ POpe.name ope)}
 
-mkOperatorIn     = POpe.Operator {POpe.name = PB.fromString "in"         , POpe.param = Seq.empty}
+xIs :: PEx.Expr -> PEx.Expr -> PEx.Expr
+xIs x1 x2 = multiaryOperator mkOperatorIs [x1, x2] 
+
+xIsNot :: PEx.Expr -> PEx.Expr -> PEx.Expr
+xIsNot x1 x2 = multiaryOperator mkOperatorIsNot [x1, x2]
+
+mkOperatorIn     = mkOperator "in"
 mkOperatorNotIn  = mkOperatorNot mkOperatorIn 
 
 xIn :: PEx.Expr -> [PEx.Expr] -> PEx.Expr
 xIn iden params = multiaryOperator mkOperatorIn (iden : params)
 
 xNotIn :: PEx.Expr -> [PEx.Expr] -> PEx.Expr
-xNotIn iden params = multiaryOperator  mkOperatorNotIn (iden : params)
+xNotIn iden params = multiaryOperator mkOperatorNotIn (iden : params)
+
+mkOperatorBetween     = mkOperator "between"
+mkOperatorNotBetween  = mkOperatorNot mkOperatorBetween 
+
+xBetween :: PEx.Expr -> PEx.Expr -> PEx.Expr -> PEx.Expr  
+xBetween x min max = multiaryOperator mkOperatorBetween [x, min, max]
+
+xNotBetween :: PEx.Expr -> PEx.Expr -> PEx.Expr -> PEx.Expr  
+xNotBetween x min max = multiaryOperator mkOperatorNotBetween [x, min, max]
+
+xCast :: [PEx.Expr] -> PEx.Expr 
+xCast args = multiaryOperator (mkOperator "cast") args 
 
 --   Ternary                                                TODO
 --   Units for date_add/date_sub                            TODO
 --   Types for cast                                         TODO
+
+
+--   Unary
+--     * ``!``
+--     * ``sign_plus``
+--     * ``sign_minus``
+--     * ``~``
+mkOperatorBang      = mkOperator "!"         --  TODO type signature
+mkOperatorSignPlus  = mkOperator "+"         
+mkOperatorSignMinus = mkOperator "-"        
+mkOperatorTilda     = mkOperator "~"         
+
+mkSingleOperator ope x = multiaryOperator (mkOperator ope) [x]
+
+(@!) x = multiaryOperator mkOperatorBang      [x]
+(@+) x = multiaryOperator mkOperatorSignPlus  [x]
+(@-) x = multiaryOperator mkOperatorSignMinus [x]
+(@~) x = multiaryOperator mkOperatorTilda     [x]
+
+mkBinaryOperator :: String -> PEx.Expr -> PEx.Expr -> PEx.Expr
+mkBinaryOperator = binaryOperator . mkOperator
+
 --   Binary
-mkOperatorAnd     = POpe.Operator {POpe.name = PB.fromString "&&"         , POpe.param = Seq.empty} --  TODO type signature
-mkOperatorOr      = POpe.Operator {POpe.name = PB.fromString "||"         , POpe.param = Seq.empty}
-mkOperatorXor     = POpe.Operator {POpe.name = PB.fromString "xor"        , POpe.param = Seq.empty} 
-mkOperatorEq      = POpe.Operator {POpe.name = PB.fromString "=="         , POpe.param = Seq.empty}
-mkOperatorNotEq   = POpe.Operator {POpe.name = PB.fromString "!="         , POpe.param = Seq.empty}
-mkOperatorGt      = POpe.Operator {POpe.name = PB.fromString ">"          , POpe.param = Seq.empty}
-mkOperatorGte     = POpe.Operator {POpe.name = PB.fromString ">="         , POpe.param = Seq.empty}
-mkOperatorSt      = POpe.Operator {POpe.name = PB.fromString "<"          , POpe.param = Seq.empty}
-mkOperatorSte     = POpe.Operator {POpe.name = PB.fromString "<="         , POpe.param = Seq.empty}
-mkOperatorShiftL  = POpe.Operator {POpe.name = PB.fromString "<<"         , POpe.param = Seq.empty}
-mkOperatorShiftR  = POpe.Operator {POpe.name = PB.fromString "??"         , POpe.param = Seq.empty}
-mkOperatorPlus    = POpe.Operator {POpe.name = PB.fromString "+"          , POpe.param = Seq.empty}
-mkOperatorMinus   = POpe.Operator {POpe.name = PB.fromString "-"          , POpe.param = Seq.empty}
-mkOperatorMultpl  = POpe.Operator {POpe.name = PB.fromString "*"          , POpe.param = Seq.empty}
-mkOperatorDivid   = POpe.Operator {POpe.name = PB.fromString "/"          , POpe.param = Seq.empty}
-mkOperatorRem     = POpe.Operator {POpe.name = PB.fromString "%"          , POpe.param = Seq.empty}
-mkOperatorIs      = POpe.Operator {POpe.name = PB.fromString "is"         , POpe.param = Seq.empty}
-mkOperatorIsNot   = POpe.Operator {POpe.name = PB.fromString "is_not"     , POpe.param = Seq.empty}
-mkOperatorReg     = POpe.Operator {POpe.name = PB.fromString "regexp"     , POpe.param = Seq.empty}
-mkOperatorNotReg  = POpe.Operator {POpe.name = PB.fromString "not_regexp" , POpe.param = Seq.empty}
-mkOperatorLike    = POpe.Operator {POpe.name = PB.fromString "like"       , POpe.param = Seq.empty}
-mkOperatorNotLike = POpe.Operator {POpe.name = PB.fromString "not_like"   , POpe.param = Seq.empty}
-mkOperatorCast    = POpe.Operator {POpe.name = PB.fromString "cast"       , POpe.param = Seq.empty}
+mkOperatorAnd     = mkOperator "&&"         --  TODO type signature
+mkOperatorOr      = mkOperator "||"         
+mkOperatorXor     = mkOperator "xor"        
+mkOperatorEq      = mkOperator "=="         
+mkOperatorNotEq   = mkOperator "!="         
+mkOperatorGt      = mkOperator ">"          
+mkOperatorGte     = mkOperator ">="         
+mkOperatorSt      = mkOperator "<"          
+mkOperatorSte     = mkOperator "<="         
+mkOperatorShiftL  = mkOperator "<<"         
+mkOperatorShiftR  = mkOperator "??"         
+mkOperatorPlus    = mkOperator "+"          
+mkOperatorMinus   = mkOperator "-"          
+mkOperatorMultpl  = mkOperator "*"          
+mkOperatorDivid   = mkOperator "/"          
+mkOperatorRem     = mkOperator "%"          
+mkOperatorIs      = mkOperator "is"         
+mkOperatorIsNot   = mkOperator "is_not"     
+mkOperatorReg     = mkOperator "regexp"     
+mkOperatorNotReg  = mkOperator "not_regexp" 
+mkOperatorLike    = mkOperator "like"       
+mkOperatorNotLike = mkOperator "not_like"   
+mkOperatorCast    = mkOperator "cast"       
 
 (@&&) :: PEx.Expr -> PEx.Expr -> PEx.Expr
 (@&&) = binaryOperator mkOperatorAnd
@@ -959,8 +1071,8 @@ mkOperatorCast    = POpe.Operator {POpe.name = PB.fromString "cast"       , POpe
 (@<=)        = binaryOperator mkOperatorSte 
 (@<<)        = binaryOperator mkOperatorShiftL 
 (@??)        = binaryOperator mkOperatorShiftR 
-(@+)         = binaryOperator mkOperatorPlus 
-(@-)         = binaryOperator mkOperatorMinus 
+(@@+)         = binaryOperator mkOperatorPlus 
+(@@-)         = binaryOperator mkOperatorMinus 
 (@*)         = binaryOperator mkOperatorMultpl 
 (@/)         = binaryOperator mkOperatorDivid 
 (@%)         = binaryOperator mkOperatorRem 
@@ -977,6 +1089,8 @@ binaryOperator ope a b = multiaryOperator ope [a, b]
 
 multiaryOperator :: POpe.Operator -> [PEx.Expr] -> PEx.Expr 
 multiaryOperator ope xs = PB.defaultValue { PEx.type' = PET.OPERATOR, PEx.operator = Just $ ope {POpe.param = Seq.fromList xs } } 
+
+
 
 
 mkOrderDirection                      :: POD.Direction                    
@@ -1222,11 +1336,11 @@ instance UpdateOperatable String
 instance UpdateOperatable Text
 
 -- | Make an update array insert operation.
-updateArrayInsert :: String -> PAREx.ArrayExpr -> PUO.UpdateOperation
+updateArrayInsert :: String -> PAR.Array -> PUO.UpdateOperation
 updateArrayInsert ident arr = mkUpdateOperationArrayInsert (columnIdentifierDocumentPahtItem [mkDocumentPathItem ident]) (expr arr)
 
 -- | Make an update array append operation.
-updateArrayAppend :: String -> PAREx.ArrayExpr -> PUO.UpdateOperation
+updateArrayAppend :: String -> PAR.Array -> PUO.UpdateOperation
 updateArrayAppend ident arr = mkUpdateOperationArrayAppend (columnIdentifierDocumentPahtItem [mkDocumentPathItem ident]) (expr arr)
 
 mkViewAlgorithm                       :: PVA.ViewAlgorithm                      
@@ -1320,9 +1434,9 @@ s_resultset_fetch_done_more_out_params = 18 :: Int
 getClientMsgTypeNo ::  (Typeable msg, Show msg) => msg -> Int
 getClientMsgTypeNo msg = 
   case found of
-    Nothing -> Prelude.error $ "getClientMsgTpeNo faliure, msg=" ++ show msg
+    Nothing -> P.error $ "getClientMsgTpeNo faliure, msg=" ++ show msg
     Just (a,b,c) -> a
-  where found = Data.List.find (\(a, b, c) -> c == typeOf msg) clientMessageMap 
+  where found = L.find (\(a, b, c) -> c == typeOf msg) clientMessageMap 
 
 -- | Mapping between a message type number and an object.
 clientMessageMap :: [(Int, PCMT.Type, TypeRep)]
@@ -1365,7 +1479,7 @@ writeObj path obj = BL.writeFile path $ PBW.messagePut obj
 -- pPrint :: (MonadIO m, Show a) => a -> m ()
 --  >>> x >>= pPrint
 -- StmtExecute
---     { namespace = Just "sql"
+--     { namespace = Just gg"sql"
 --     , stmt = "insert into data_type_timestamp values (?);"
 --     , args = fromList
 --         [ Any
@@ -1399,4 +1513,141 @@ readObj path = do
   bin <- liftIO  $ B.readFile path 
   obj <- getMessage bin
   return obj
+
+--
+-- ToString
+--
+
+scalarToString :: PS.Scalar -> String
+scalarToString PS.Scalar{..} = 
+  case type' of
+    PST.V_SINT   -> j2s v_signed_int 
+    PST.V_UINT   -> j2s v_unsigned_int 
+    PST.V_NULL   -> "NULL"
+    PST.V_OCTETS -> show $ bs2s' $ fromJust $ PSO.value <$> v_octets -- use show to add "\"" before and after the data 
+    PST.V_DOUBLE -> j2s v_double
+    PST.V_FLOAT  -> j2s v_float
+    PST.V_BOOL   -> fromJust $ (\x -> if x then "TRUE" else "FALSE") <$> v_bool
+    PST.V_STRING -> show $ bs2s' $ fromJust $ PSS.value <$> v_string
+    -- _           -> error "invalid type"    Pattern match is redundant
+
+j2s :: (Show a) => Maybe a -> String
+j2s = show . fromJust
+
+documentPathToString :: Seq.Seq PDPI.DocumentPathItem -> String
+documentPathToString seq = F.foldr (\x acc -> documentSinglePathToString x ++ acc) "" seq 
+
+documentSinglePathToString :: PDPI.DocumentPathItem -> String
+documentSinglePathToString PDPI.DocumentPathItem{..} =  
+  case type' of
+    PDPIT.MEMBER               -> "." ++ ((PBH.uToString $ fromJust value) >>= escapeDoubleQuote )
+    PDPIT.MEMBER_ASTERISK      -> ".*"
+    PDPIT.ARRAY_INDEX          -> "[" ++ (show $ fromJust index) ++ "]" -- '[' :   :']' : []
+    PDPIT.ARRAY_INDEX_ASTERISK -> "[*]"
+    PDPIT.DOUBLE_ASTERISK      -> "**"
+
+-- "@\"@" --> "\"@\\\"@\""
+escapeDoubleQuote = \c -> if c == '\"' then "\\\"" else [c]
+
+columnIdentifierToString :: PCI.ColumnIdentifier -> String
+columnIdentifierToString PCI.ColumnIdentifier{..} =  
+  case name of
+    Just n   -> 
+      case Seq.null document_path of 
+        True  -> sch ++ tbl ++ nam
+        False -> sch ++ tbl ++ nam ++ "->$" ++ (documentPathToString document_path)
+    Nothing  -> "$" ++ (documentPathToString document_path)
+  where nam = stripMaybeToStr name        ""
+        tbl = stripMaybeToStr table_name  "."
+        sch = stripMaybeToStr schema_name "."
+
+stripMaybeToStr :: (Maybe PBH.Utf8) -> String -> String  
+stripMaybeToStr m appnd =
+  case m of
+    Just str -> do 
+      let s =  PBH.uToString str
+      if P.null s then "" else (quoteIdentifier s) ++ appnd
+    Nothing  ->  ""
+
+quoteIdentifier :: String -> String
+quoteIdentifier str = 
+  case specialCharFound str of
+    True  -> "'" ++ (str >>= escapeAps) ++ "'"
+    False -> str
+
+-- "\'" --> "''"
+escapeAps = \c -> if c == '\'' then "''" else [c]
+
+removeAps = \c -> if c == '\"' then [] else [c]
+
+specialCharFound "" = False
+specialCharFound (x:xs)
+    | x == '\'' = True
+    | x == '"'  = True
+    | x == '`'  = True
+    | x == '$'  = True
+    | x == '.'  = True
+    | x == '-'  = True
+    | otherwise = specialCharFound xs
+
+functionCallToString :: PFC.FunctionCall -> String
+functionCallToString PFC.FunctionCall{..} =
+  sch ++ nae ++ "(" ++ exps ++ ")"
+  where nae  = quoteIdentifier $ PBH.uToString $ PI.name name 
+        sch  = stripMaybeToStr (PI.schema_name name) "." 
+        exps = L.intercalate ", " $ F.toList $ fmap exprToString param
+
+exprToString :: PEx.Expr -> String
+exprToString PEx.Expr{..} = 
+  case type' of 
+     PET.IDENT       -> columnIdentifierToString $ fromJust identifier
+     PET.LITERAL     -> scalarToString $ fromJust literal
+     PET.VARIABLE    -> undefined
+     PET.FUNC_CALL   -> functionCallToString $ fromJust function_call 
+     PET.OPERATOR    -> operatorToString $ fromJust operator
+     PET.PLACEHOLDER -> ":" ++ (show $ fromJust position) 
+     PET.OBJECT      -> objectToString $ fromJust object
+     PET.ARRAY       -> undefined
+     -- _               -> error $ "Unknown type tag: " ++ (show type')  --  Pattern match is redundant
+
+paramListToString :: [String] -> String
+paramListToString params = "(" ++ (L.intercalate ", " params) ++ ")" 
+
+paramListToString' :: Seq.Seq String -> String
+paramListToString' params = paramListToString (F.toList params)
+
+operatorToString :: POpe.Operator -> String
+operatorToString POpe.Operator{..} = 
+  case nam of 
+    "between"     -> Seq.index pars 0 ++ " between "     ++ Seq.index pars 1 ++ " AND " ++ Seq.index pars 2 
+    "not_between" -> Seq.index pars 0 ++ " not between " ++ Seq.index pars 1 ++ " AND " ++ Seq.index pars 2
+    "in"          -> Seq.index pars 0 ++ " in"           ++ (paramListToString' $ Seq.drop 1 pars)
+    "not_in"      -> Seq.index pars 0 ++ " not in"       ++ (paramListToString' $ Seq.drop 1 pars)
+    "like"        -> Seq.index pars 0 ++ " like "        ++ (Seq.index pars 1) ++ getEscapeStr pars
+    "not_like"    -> Seq.index pars 0 ++ " not like "    ++ (Seq.index pars 1) ++ getEscapeStr pars
+    "regrex"      -> Seq.index pars 0 ++ " regrex "      ++ (Seq.index pars 1)
+    "not_regrex"  -> Seq.index pars 0 ++ " not_regrex "  ++ (Seq.index pars 1)
+    "cast"        -> "cast(" ++ Seq.index pars 0 ++ " AS " ++ (Seq.index pars 1 >>= removeAps)
+    _             -> case len of
+                       2 -> if P.length nam < 3 || (nam == "and" || nam == "or")
+                              then "(" ++ Seq.index pars 0 ++ " " ++ nam ++ " " ++ Seq.index pars 1 ++ ")"
+                              else nam ++ (paramListToString' pars)
+                       1 -> nam ++ Seq.index pars 0 
+                       0 -> nam 
+                       _ -> nam ++ (paramListToString' pars)
+  where nam  = PBH.uToString name 
+        pars = fmap exprToString param
+        getEscapeStr xs = if Seq.length xs == 3 then " ESCAPE " ++ (Seq.index xs 2) else ""
+        len = Seq.length pars
+
+objectToString :: PO.Object -> String
+objectToString PO.Object{..} = 
+  L.intercalate "," $ F.toList $ fmap (\x -> "'" ++ quoteJsonKey (PBH.uToString $ POF.key x) ++ "':" ++ exprToString (POF.value x)) fld 
+
+-- replaceAll("'", "\\\\'");
+quoteJsonKey :: String -> String
+quoteJsonKey jken = jken >>= (\x -> if x == '\'' then "\\\'" else [x])
+
+
+
 
