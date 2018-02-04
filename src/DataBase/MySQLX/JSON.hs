@@ -42,7 +42,7 @@ import DataBase.MySQLX.Util
 
 -- | Value belongs to Exprable class.
 instance Exprable JSONT.Value where 
-  expr (JSON.Object v) = expr $ map (\x -> mkObjectFieldExpr (T.unpack x) (expr $ v MapL.! x) ) (MapL.keys v) 
+  expr (JSON.Object v) = expr $ map (\x -> mkObjectField (T.unpack x) (expr $ v MapL.! x) ) (MapL.keys v) 
   expr (JSON.Array  v) = expr $ mkArray $ expr <$> (V.foldl (\acc x -> x:acc) [] v) 
   expr (JSON.Number v) = case floatingOrInteger v of -- TODO
                               -- Left  (f::Float)  -> expr f
