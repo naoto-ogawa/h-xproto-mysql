@@ -79,21 +79,21 @@ _doCollection operation schema table nodeSess = do
     throwM $ XProtocolError msg
   else do 
     ok <- getStmtExecuteOk byte
-    debug ok
+    -- debug ok
     return ()
   where reader = _sendStmtExecuteX
                  operation
                  [
-                   XM.any $ setObject 
+                   XM.any $ setObjectAny
                      [
-                       mkObjectField "schema" $ XM.any schema
-                      ,mkObjectField "name"   $ XM.any table 
+                       mkObjectFieldAny "schema" $ XM.any schema
+                      ,mkObjectFieldAny "name"   $ XM.any table 
                      ]
                  ]
 
 _sendStmtExecuteX :: (MonadIO m, MonadThrow m) => String -> [PA.Any] -> ReaderT NodeSession m ()
 _sendStmtExecuteX stmt args = do 
-  debug $ "stmtExecute = " ++ (show s)
+  -- debug $ "stmtExecute = " ++ (show s)
   writeMessageR s
   where s = mkStmtExecuteX' stmt args
 
