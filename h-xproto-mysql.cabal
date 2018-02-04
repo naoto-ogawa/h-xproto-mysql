@@ -23,6 +23,7 @@ library
                      , protocol-buffers               >=2.4.3 && <2.5
                      , protocol-buffers-descriptor    >=2.4.3 && <2.5  
                      , network                        ==2.6.3.2
+                     , aeson                          ==1.2.1.0
                      , binary                         ==0.8.3.0
                      , bytestring                     ==0.10.8.1
                      , bytestring-conversion          ==0.3.1
