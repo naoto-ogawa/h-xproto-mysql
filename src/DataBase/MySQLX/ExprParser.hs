@@ -27,7 +27,7 @@ import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Order                             
 import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Projection                         as PP
 
 -- my library
-import DataBase.MySQLX.Functions
+-- import DataBase.MySQLX.Functions
 import DataBase.MySQLX.Model          as XM
 import DataBase.MySQLX.Util           (uppercase, bs2s)
 
