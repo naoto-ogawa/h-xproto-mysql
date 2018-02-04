@@ -4,7 +4,6 @@ module Example.Example11 where
 import qualified Data.ByteString.Lazy as BL 
 import           Data.Sequence        as Seq
 import           Data.Word
-import           Data.BCD.Packed
 import           Text.Pretty.Simple
 
 -- protocolbuffers

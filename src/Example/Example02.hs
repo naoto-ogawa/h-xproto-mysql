@@ -103,7 +103,7 @@ example2_04 = do
   putStrLn "start example2_04"
   nodeSess <- openNodeSession $ defaultNodeSesssionInfo {database = "x_protocol_test", user = "root", password="root"}
 
-  let f = PB.defaultValue `setCollection` (mkCollection "x_protocol_test" "foo_doc") `setDataModel` PDM.DOCUMENT :: PD.Delete
+  let f = PB.defaultValue `setCollection` (mkCollection "x_protocol_test" "foo_doc") `setDataModel` PDM.DOCUMENT
 
   ret <- CRUD.delete f nodeSess
   print ret
@@ -119,10 +119,10 @@ example2_04 = do
 example2_05 :: IO ()
 example2_05 = do
   putStrLn "start example2_05"
-  nodeSess <- openNodeSession $ defaultNodeSesssionInfo {database = "x_protocol_test", user = "root", password="root"}
+  nodeSess <- openNodeSession $ defaultNodeSesssionInfo {database = "world_x", user = "root", password="root"}
 
   let f = PB.defaultValue 
-          `setCollection` (mkCollection "x_protocol_test" "foo_doc") 
+          `setCollection` (mkCollection "world_x" "countryinfo") 
           `setDataModel`  PDM.DOCUMENT 
           `setCriteria`  (exprDocumentPathItem "name" @== expr "Mike" )
 

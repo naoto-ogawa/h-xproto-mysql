@@ -24,6 +24,7 @@ import qualified Data.Sequence        as Seq
 import qualified Data.Text            as T
 import qualified Data.Text.Encoding   as TE
 import qualified Data.Word            as W
+import           Text.Pretty.Simple
 
 -- protocolbuffers
 import qualified Text.ProtocolBuffers.WireMessage    as PBW
@@ -71,7 +72,7 @@ error
 -}
 
 nodeSession :: IO NodeSession
-nodeSession = openNodeSession $ defaultNodeSesssionInfo {database = "x_protocol_test", user = "root", password="root"}
+nodeSession = openNodeSession $ defaultNodeSesssionInfo {database = "x_protocol_test", user = "root", password="root", port=8000}
 
 {-
 create table test_users( id int not null, name  varchar(20), email varchar(20), point int);
@@ -140,8 +141,8 @@ example09_base noerror test_case = do
     runReaderT test_case nodeSess
 
   ret <- runReaderT (repeatreadMessagesR noerror 5 ([],[])) nodeSess
-  print $ length $ fst ret
-  print $ length $ snd ret
+  print $ "ok cnt = " ++ (show $ length $ fst ret)
+  print $ "ng cnt = " ++ (show $ length $ snd ret)
   print ret
 
   putStrLn "end"
