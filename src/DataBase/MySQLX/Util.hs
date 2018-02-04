@@ -25,8 +25,13 @@ module DataBase.MySQLX.Util
   ,suffUtf8
   ,mapUtf8
   ,s2bs
+  ,s2bs'
+  ,bs2s
+  ,bs2s'
   ,byte2Int
+  ,uppercase
   ,debug 
+  ,pPrint_
   ) where
 
 import Control.Monad.IO.Class
@@ -43,14 +48,27 @@ import           Data.ByteString.Conversion.To as Conv
 import qualified Data.ByteString.Internal as BI
 import qualified Data.ByteString.Unsafe   as BU
 import qualified Data.ByteString.Lazy     as BL 
+import qualified Data.Foldable            as F 
 import qualified Data.Int                 as I
 import qualified Data.Text                as T
-import           Data.Text.Encoding
+import qualified Data.Text.Lazy           as TL
+import qualified Data.Text.Lazy.IO        as TLIO 
+import           Data.Text.Encoding       as E
+import           Data.Text.Lazy.Encoding  as EL
+
+
 import qualified Data.Word                as W
-import           Data.UUID
+import           Data.UUID                hiding (null)
 import           Data.UUID.V4
 
+import           Text.Pretty.Simple                        as X
+import           Text.Pretty.Simple.Internal.ExprParser    as X
+import           Text.Pretty.Simple.Internal.Expr          as X
+import           Text.Pretty.Simple.Internal.ExprToOutput  as X
+import           Text.Pretty.Simple.Internal.Output        as X
+import           Text.Pretty.Simple.Internal.OutputPrinter as X
 import Data.Bits
+
 import Foreign.Ptr
 import Foreign.Storable
 
@@ -196,8 +214,28 @@ isJust x = case x of
 -- String conversion 
 -- -----------------------------------------------------------------------------
 s2bs :: String -> B.ByteString
-s2bs = encodeUtf8 . T.pack 
+s2bs = E.encodeUtf8 . T.pack 
 
+bs2s :: B.ByteString -> String
+bs2s = T.unpack . E.decodeUtf8 
+
+s2bs' :: String -> BL.ByteString
+s2bs' = EL.encodeUtf8 . TL.pack 
+
+bs2s' :: BL.ByteString -> String
+bs2s' = TL.unpack . EL.decodeUtf8 
+
+-- http://bluebones.net/2007/01/replace-in-haskell/
+replace :: Eq a => [a] -> [a] -> [a] -> [a]
+replace [] _ _ = []
+replace s find repl =
+    if take (length find) s == find
+        then repl ++ (replace (drop (length find) s) find repl)
+        else [head s] ++ (replace (tail s) find repl)
+
+-- https://stackoverflow.com/a/20479476
+uppercase :: B.ByteString -> B.ByteString
+uppercase x = C8.pack $ map (\c -> if c >= 'a' && c <= 'z' then toEnum (fromEnum c - 32) else c) $ C8.unpack x
 -- -----------------------------------------------------------------------------
 -- Debug 
 -- -----------------------------------------------------------------------------
@@ -207,4 +245,46 @@ debug :: (MonadIO m, Show a) => a -> m ()
 debug = liftIO . print
 -- debug = return $ return () --liftIO . print
 
+
+-- -----------------------------------------------------------------------------
+-- Debug 
+-- Copy and Paset from Text.Pretty.Simple 
+-- -----------------------------------------------------------------------------
+
+pPrint_ :: (MonadIO m, Show a) => a -> m ()
+pPrint_ = pPrintOpt_ defaultOutputOptionsDarkBg
+
+pPrintOpt_ :: (MonadIO m, Show a) => OutputOptions -> a -> m ()
+pPrintOpt_ outputOptions = liftIO . TLIO.putStrLn . pShowOpt_ outputOptions
+
+pShowOpt_ :: Show a => OutputOptions -> a -> TL.Text
+pShowOpt_ outputOptions = pStringOpt_ outputOptions . show
+
+pStringOpt_ :: OutputOptions -> String -> TL.Text
+pStringOpt_ outputOptions string =
+  case expressionParse string of
+    Left _ -> TL.pack string
+    Right expressions ->
+        render outputOptions . F.toList $ expressionsToOutputs $ removeNothing (not . isNothing) expressions
+                                                                      -- add ~~~~~~~~~~~~~~~~  
+removeNothing :: (Expr -> Bool) -> [Expr] -> [Expr]
+removeNothing f []     = []
+removeNothing f (x:xs) = 
+  case x of
+    (Other _)            -> if isNothing x then removeNothing f xs else x : removeNothing f xs
+    (StringLit _)                   -> x                                  : removeNothing f xs
+    (Brackets (CommaSeparated exs)) -> (Brackets $ doCommaSeparated exs)  : removeNothing f xs
+    (Braces   (CommaSeparated exs)) -> (Braces   $ doCommaSeparated exs)  : removeNothing f xs
+    (Parens   (CommaSeparated exs)) -> (Parens   $ doCommaSeparated exs)  : removeNothing f xs
+  where removeNul = filter (not . null)
+        recursive = foldr (\x acc -> removeNothing f x : acc) []
+        doCommaSeparated exs = CommaSeparated . removeNul $ recursive exs
+
+isNothingStr :: String -> Bool
+isNothingStr str = length xs == 3 && last xs == "Nothing"
+  where xs = words str
+
+isNothing :: Expr -> Bool
+isNothing (Other str) = isNothingStr str
+isNothing _ = False 
 
