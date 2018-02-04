@@ -1,6 +1,7 @@
 module HXProtoMySQL where
 
 import DataBase.MySQLX.CRUD
+import DataBase.MySQLX.JSON
 import DataBase.MySQLX.Document
 import DataBase.MySQLX.Exception
 import DataBase.MySQLX.Model
