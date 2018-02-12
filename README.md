@@ -76,7 +76,7 @@ print ( $(retrieveRow ''MyRecord) x )
 
 Select (without Template Haskell)
 
-[see example] (https://github.com/naoto-ogawa/h-xproto-mysql/blob/master/src/Example/Example14.hs)
+[see example](https://github.com/naoto-ogawa/h-xproto-mysql/blob/master/src/Example/Example14.hs)
 
 ### Document interface
 
