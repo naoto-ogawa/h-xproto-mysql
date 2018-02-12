@@ -74,6 +74,10 @@ ret@(x:xs) <- executeRawSql "select * from city limit 2" nodeSess
 print ( $(retrieveRow ''MyRecord) x )
 ```
 
+Select (without Template Haskell)
+
+[see example] (https://github.com/naoto-ogawa/h-xproto-mysql/blob/master/src/Example/Example14.hs)
+
 ### Document interface
 
 Find
