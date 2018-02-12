@@ -11,6 +11,7 @@ portability :
 {-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE RecordWildCards      #-}
+{-# LANGUAGE DeriveFunctor        #-}
 
 module DataBase.MySQLX.Statement 
   (
@@ -28,6 +29,10 @@ module DataBase.MySQLX.Statement
   ,getColInt32
   ,getColString
   ,cutNull
+  ,RowFrom(..)
+  ,colVal
+  ,rowFrom
+  ,resultFrom
    -- ** ResultSet MetaData Operation
   ,getColMetaType
   ,getColMetaName
@@ -37,16 +42,19 @@ module DataBase.MySQLX.Statement
    -- ** Generic Sql operations
   ,sendStmtExecuteSql 
   ,responseUpdateSql' 
+   -- ** an easy function on repl.
+  ,runOnRepl
   ) where
 
 -- general, standard library
-import Control.Exception      (SomeException)
-import Control.Exception.Safe 
+-- import Control.Exception      (SomeException)
+import Control.Exception.Safe
 import Control.Monad
 import Control.Monad.Trans.Reader
 import Control.Monad.IO.Class
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as BL 
+import qualified Data.Foldable        as Fold 
 import qualified Data.Int             as I
 import qualified Data.Sequence        as Seq
 import qualified Data.Text            as T
@@ -68,6 +76,7 @@ import qualified Com.Mysql.Cj.Mysqlx.Protobuf.Warning                           
 -- protocolbuffers
 import qualified Text.ProtocolBuffers.WireMessage    as PBW
 import qualified Text.ProtocolBuffers                as PB
+import qualified Text.ProtocolBuffers.Basic          as PBB
 
 -- my library
 import DataBase.MySQLX.Exception
@@ -88,7 +97,7 @@ import DataBase.MySQLX.Util
 executeRawSql :: (MonadIO m, MonadThrow m) 
               => String                    -- ^ SQL string
               -> NodeSession               -- ^ Node session
-              -> m [Seq.Seq BL.ByteString] -- ^ Result Set
+              -> m ResultSet               -- ^ Result Set
 executeRawSql sql nodeSess = executeSql sql [] nodeSess 
 
 -- |  Select binding Interface (without meta data)
@@ -96,7 +105,7 @@ executeSql :: (MonadIO m, MonadThrow m)
            => String                       -- ^ SQL string
            -> [PA.Any]                     -- ^ parameters
            -> NodeSession                  -- ^ Node session
-           -> m [Seq.Seq BL.ByteString]    -- ^ Result Set
+           -> m ResultSet                  -- ^ Result Set
 executeSql sql param nodeSess = do
   runReaderT (sendStmtExecuteSql sql param) nodeSess
   ret <- runReaderT readMessagesR nodeSess
@@ -106,7 +115,7 @@ executeSql sql param nodeSess = do
 executeRawSqlMetaData :: (MonadIO m, MonadThrow m) 
                       => String            -- ^ SQL string
                       -> NodeSession       -- ^ Node sessin
-                      -> m (ResultSetMetaData, [Seq.Seq BL.ByteString]) -- ^ Result Set tuple (metadata, result)
+                      -> m (ResultSetMetaData, ResultSet) -- ^ Result Set tuple (metadata, result)
 executeRawSqlMetaData sql nodeSess = executeSqlMetaData sql [] nodeSess 
 
 -- | Select binding Interface with meta data
@@ -114,7 +123,7 @@ executeSqlMetaData :: (MonadIO m, MonadThrow m)
                      => String             -- ^ SQL string
                      -> [PA.Any]           -- ^ parameters
                      -> NodeSession        -- ^ Node session 
-                     -> m (ResultSetMetaData, [Seq.Seq BL.ByteString]) -- ^ Result Set tuple (metadata, result)
+                     -> m (ResultSetMetaData, ResultSet) -- ^ Result Set tuple (metadata, result)
 executeSqlMetaData sql param nodeSess = do
   runReaderT (sendStmtExecuteSql sql param) nodeSess
   ret <- runReaderT readMessagesR nodeSess
@@ -134,17 +143,37 @@ executeSqlMetaData sql param nodeSess = do
 -- -----------------------------------------------------------------------------
 -- Retrive ResultSet
 -- -----------------------------------------------------------------------------
+-- | check if column is null from a Row. (NULL is ignored.)
+isNull :: Row -> Int -> Bool
+isNull seq idx = isNull' $ Seq.index seq idx 
+
+-- | check if column is null from ByteString
+isNull' :: BL.ByteString -> Bool 
+isNull' = (== 0) . BL.length  
+
+-- xxxxx'   :: ByteString      -> data
+-- xxxxx    :: Seqence + index -> data
+-- xxxxx_'   :: ByteString      -> Maybe data
+-- xxxxx_    :: Seqence + index -> Maybe data
 
 -- | retrive String from a Row. (NULL is ignored.)
-getColString :: Seq.Seq BL.ByteString -> Int -> String
+getColString :: Row -> Int -> String
 getColString = (T.unpack .) . (getColText) -- two parameters point free style (U.unpack . getColText a b)
 
 -- | from ByteString to String.
 getColString' :: BL.ByteString -> String
 getColString' = T.unpack . getColText'
 
+-- | retrive Charfrom a Row. (NULL is ignored.)
+getColChar :: Row -> Int -> Char
+getColChar row idx = getColChar' $ getColByteString row idx 
+
+-- | from ByteChar to Char.
+getColChar' :: BL.ByteString -> Char
+getColChar' = T.head .  getColText'
+
 -- | retrive Text from a Row. (NULL is ignored.)
-getColText :: Seq.Seq BL.ByteString -> Int -> T.Text 
+getColText :: Row -> Int -> T.Text 
 getColText seq idx = TE.decodeUtf8 $ BL.toStrict $ getColByteString seq idx 
 
 -- | from ByteString to Text.
@@ -152,7 +181,7 @@ getColText' :: BL.ByteString -> T.Text
 getColText' = TE.decodeUtf8 . BL.toStrict
 
 -- | retrive Int64 from a Row.
-getColInt64 :: Seq.Seq BL.ByteString  -- ^ a Row 
+getColInt64 :: Row  -- ^ a Row 
             -> Int                    -- ^ column index 
             -> I.Int64                -- ^ Int64
 getColInt64 seq idx = PBW.zzDecode64 $ PBW.getFromBS PBW.getVarInt $ Seq.index seq idx
@@ -161,8 +190,18 @@ getColInt64 seq idx = PBW.zzDecode64 $ PBW.getFromBS PBW.getVarInt $ Seq.index s
 getColInt64' :: BL.ByteString -> I.Int64
 getColInt64' = PBW.zzDecode64 . PBW.getFromBS PBW.getVarInt
 
+-- | retrive Doublefrom a Row.
+getColDouble :: Row   -- ^ a Row 
+            -> Int    -- ^ column index 
+            -> Double -- ^ Int64
+getColDouble seq idx = getColDouble' $ Seq.index seq idx
+
+-- | from ByteString to Double.
+getColDouble' :: BL.ByteString -> Double 
+getColDouble' = PBW.getFromBS $ PBW.wireGet $ PBB.FieldType 1 
+
 -- | retrive Int32 from a Row.
-getColInt32 :: Seq.Seq BL.ByteString  -- ^ a Row 
+getColInt32 :: Row  -- ^ a Row 
             -> Int                    -- ^ column index 
             -> I.Int32                -- ^ Int32
 getColInt32 seq idx = PBW.zzDecode32 $ PBW.getFromBS PBW.getVarInt $ Seq.index seq idx
@@ -171,8 +210,28 @@ getColInt32 seq idx = PBW.zzDecode32 $ PBW.getFromBS PBW.getVarInt $ Seq.index s
 getColInt32' :: BL.ByteString -> I.Int32
 getColInt32' = PBW.zzDecode32 . PBW.getFromBS PBW.getVarInt
 
+-- | retrive Word32 from a Row.
+getColWord32 :: Row     -- ^ a Row 
+            -> Int      -- ^ column index 
+            -> W.Word32 -- ^ Word32
+getColWord32 seq idx = PBW.getFromBS PBW.getVarInt $ Seq.index seq idx
+
+-- | from ByteString to Word32.
+getColWord32' :: BL.ByteString -> W.Word32
+getColWord32' = PBW.getFromBS PBW.getVarInt
+
+-- | retrive Word64 from a Row.
+getColWord64 :: Row     -- ^ a Row 
+            -> Int      -- ^ column index 
+            -> W.Word64 -- ^ Word32
+getColWord64 seq idx = PBW.getFromBS PBW.getVarInt $ Seq.index seq idx
+
+-- | from ByteString to Word64.
+getColWord64' :: BL.ByteString -> W.Word64
+getColWord64' = PBW.getFromBS PBW.getVarInt
+
 -- | remove null value from a ByteString.
-getColByteString :: Seq.Seq BL.ByteString -> Int -> BL.ByteString
+getColByteString :: Row -> Int -> BL.ByteString
 getColByteString seq idx = BL.take len byte
   where byte = Seq.index seq idx
         len  = BL.length byte - 1 -- last bytes is null
@@ -183,10 +242,58 @@ cutNull byte = BL.take len byte
   where len  = BL.length byte - 1 -- last bytes is null
 
 -- | retrieve a column value from ByteString in ResultSet
-class ColumnValuable a where toColVal :: BL.ByteString -> a
-instance ColumnValuable Int     where toColVal = fromIntegral . getColInt64'
-instance ColumnValuable I.Int64 where toColVal = getColInt64'
-instance ColumnValuable String  where toColVal = getColString' . cutNull
+class ColumnValuable a where 
+  toColVal' :: BL.ByteString -> a
+  toColVal  :: Row -> Int -> a
+  toColVal seq idx = toColVal' $ Seq.index seq idx
+  toColValM' :: BL.ByteString -> Maybe a
+  toColValM' x = if isNull' x then Nothing else Just $ toColVal' x 
+  toColValM  :: Row -> Int -> Maybe a
+  toColValM seq idx = toColValM' $ Seq.index seq idx
+  toColValE' :: (MonadIO m, MonadThrow m) => BL.ByteString -> m a
+  toColValE' x = if isNull' x 
+                   then throwM $ XProtocolException "This value is Null. (Maybe you should use toColValM')" 
+                   else return $ toColVal' x 
+  toColValE  :: (MonadIO m, MonadThrow m) => Row -> Int -> m a
+  toColValE seq idx = if isNull' x 
+                        then throwM $ XProtocolException ("This value is Null. idx=" ++ (show idx) ++ " (Maybe you shoud use toColValM')") 
+                        else return $ toColVal' x
+    where x  = Seq.index seq idx    
+instance ColumnValuable Int      where toColVal' = fromIntegral . getColInt64'
+instance ColumnValuable I.Int32  where toColVal' = getColInt32'
+instance ColumnValuable I.Int64  where toColVal' = getColInt64'
+instance ColumnValuable W.Word32 where toColVal' = getColWord32'
+instance ColumnValuable W.Word64 where toColVal' = getColWord64'
+instance ColumnValuable String   where toColVal' = getColString' . cutNull
+instance ColumnValuable Char     where toColVal' = getColChar'   . cutNull
+instance ColumnValuable T.Text   where toColVal' = getColText'   . cutNull
+instance ColumnValuable Double   where toColVal' = getColDouble'
+
+-- | Parser from a ByteString to a Value.
+newtype RowFrom a = RowFrom { rowParser :: Seq.Seq BL.ByteString -> (a, Seq.Seq BL.ByteString) } deriving (Functor)
+
+-- | Applicatie from Monad definition
+instance Applicative RowFrom where
+  pure  = return
+  (<*>) = ap
+
+-- | Parser Monad
+instance Monad RowFrom where
+  return x = RowFrom (\seq -> (x, seq))
+  (>>=)    = bind
+    where  bind :: RowFrom a -> (a -> RowFrom b) -> RowFrom b
+           bind (RowFrom p1) f = RowFrom $ \seq -> (\(a, seq1) -> rowParser (f a) seq1) $ p1 seq
+
+-- | colomun parser
+colVal :: ColumnValuable a => RowFrom a
+colVal= RowFrom $ \seq -> (toColVal' $ Seq.index seq 0, Seq.drop 1 seq)
+
+-- | Recover object from ByteString.
+rowFrom :: RowFrom a -> Row -> a
+rowFrom RowFrom{..} row = fst $ rowParser row
+
+resultFrom :: RowFrom a -> ResultSet -> [a]
+resultFrom from rs = foldr (\v acc -> (rowFrom from v) : acc) [] rs
 
 --
 -- Retrive ResultSet MetaData
@@ -367,3 +474,17 @@ sendStmtExecuteSql :: (MonadIO m)
                    -> ReaderT NodeSession m () 
 sendStmtExecuteSql sql args  = writeMessageR $ mkStmtExecuteSql sql args
 
+-- -----------------------------------------------------------------------------
+--
+-- -----------------------------------------------------------------------------
+-- | repl use.
+-- >>>
+-- >>> let nodeSess = openNodeSession $ defaultNodeSesssionInfo {database = "x_protocol_test", user = "root", password="root", port=8000}
+-- >>> nodeSess >>= runOnRepl "select * from types" >>= mapM_ print
+-- >>>
+-- >>> nodeSess >>= runOnRepl "drop table foo1" >>= mapM_ print
+-- >>>
+runOnRepl :: (MonadThrow m, MonadIO m) => String -> NodeSession -> m [Message]
+runOnRepl sql nodeSess = do
+  runReaderT (sendStmtExecuteSql sql [] ) nodeSess
+  runReaderT readMessagesR nodeSess
