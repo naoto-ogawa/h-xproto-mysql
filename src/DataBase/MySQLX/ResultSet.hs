@@ -12,6 +12,8 @@ portability :
 module DataBase.MySQLX.ResultSet
   (
     ResultSetMetaData
+   ,Row
+   ,ResultSet
    ,getSizeRs
    ,getColumnsNameTypeRs 
    ,getColumnTypeRs
@@ -57,6 +59,13 @@ import DataBase.MySQLX.Util
 -- 
 -- -----------------------------------------------------------------------------
 
+-- | Row Type
+type Row = Seq.Seq BL.ByteString 
+
+-- | ResultSet Type
+type ResultSet = [Row]
+
+-- | Metadata Type
 type ResultSetMetaData = Seq.Seq PCMD.ColumnMetaData 
 
 {-
