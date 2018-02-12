@@ -35,7 +35,7 @@ import DataBase.MySQLX.Statement
 class (ColumnValuable a) => RecordValueable a where 
   -- | get a value of a expected type from a row.
   getValFromSeq :: Int -> Seq.Seq BL.ByteString -> a
-  getValFromSeq idx seq = toColVal $ Seq.index seq idx
+  getValFromSeq idx seq = toColVal seq idx
 
 instance RecordValueable Int
 instance RecordValueable String
