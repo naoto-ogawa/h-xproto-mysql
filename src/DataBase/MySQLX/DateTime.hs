@@ -21,21 +21,24 @@ module DataBase.MySQLX.DateTime
   ,getColLocalTime' 
   ,getColMysqlTime
   ,getColMysqlTime' 
-  ,toColVal
+  ,toColVal'
+  ,colValDecimalDouble
   ) where
- 
+
+import Prelude as P
+
 -- general, standard library
-import qualified Data.Binary          as Bin
 import qualified Data.Binary.Get      as BinG
-import qualified Data.Binary.Strict.BitGet as SBinG
+import qualified Data.Binary.Strict.BitGet as Bit
 import qualified Data.ByteString.Lazy as BL 
-import qualified Data.Int             as I
+import           Data.Ratio
 import qualified Data.Sequence        as Seq
 import           Data.Time
 -- generated library
 -- protocol buffer library
 -- my library
 import DataBase.MySQLX.Model          as XM
+import DataBase.MySQLX.ResultSet
 import DataBase.MySQLX.Statement   
 
 -- -----------------------------------------------------------------------------
@@ -50,16 +53,16 @@ instance Anyable Day where
   any = XM.any . show
 
 -- | retrive Day from a Row.
-getColDay :: Seq.Seq BL.ByteString  -- ^ a Row 
-            -> Int                  -- ^ column index 
-            -> Day                  -- ^ Day 
-getColDay seq idx = getColDay' (Seq.index seq idx)
+getColDay ::   Row  -- ^ a Row 
+            -> Int  -- ^ column index 
+            -> Day  -- ^ Day 
+getColDay row idx = getColDay' (Seq.index row idx)
 
 -- | from ByteString to Day. 
 getColDay' :: BL.ByteString -> Day 
 getColDay' = BinG.runGet getDay 
 
-instance ColumnValuable Day where toColVal = getColDay'
+instance ColumnValuable Day where toColVal' = getColDay'
 
 -- -----------------------------------------------------------------------------
 -- LocalTime 
@@ -100,16 +103,16 @@ instance Anyable LocalTime where
   any = XM.any . formatLocalTime
 
 -- | retrive LocalTime from a Row.
-getColLocalTime :: Seq.Seq BL.ByteString  -- ^ a Row 
-                -> Int                    -- ^ column index 
-                -> LocalTime              -- ^ LocalTime
-getColLocalTime seq idx = getColLocalTime' (Seq.index seq idx)
+getColLocalTime :: Row       -- ^ a Row 
+                -> Int       -- ^ column index 
+                -> LocalTime -- ^ LocalTime
+getColLocalTime row idx = getColLocalTime' (Seq.index row idx)
 
 -- | from ByteString to LocalTime. 
 getColLocalTime' :: BL.ByteString -> LocalTime
 getColLocalTime' = BinG.runGet getLocalTime
 
-instance ColumnValuable LocalTime  where toColVal = getColLocalTime'
+instance ColumnValuable LocalTime  where toColVal' = getColLocalTime'
 
 -- -----------------------------------------------------------------------------
 -- MysqlTime 
@@ -125,19 +128,19 @@ instance Anyable MysqlTime where
   any = XM.any . formatMysqlTime
 
 -- | retrive Day from a Row.
-getColMysqlTime :: Seq.Seq BL.ByteString  -- ^ a Row 
-            -> Int                        -- ^ column index 
+getColMysqlTime :: Row   -- ^ a Row 
+            -> Int       -- ^ column index 
             -> MysqlTime -- ^ TimeOfDay 
-getColMysqlTime seq idx = getColMysqlTime' (Seq.index seq idx) 
+getColMysqlTime row idx = getColMysqlTime' (Seq.index row idx) 
 
 -- | from ByteString to Day. 
 getColMysqlTime' :: BL.ByteString -> MysqlTime 
 getColMysqlTime' seq = 
-  case SBinG.runBitGet (BL.toStrict seq) getMysqlTime of
+  case Bit.runBitGet (BL.toStrict seq) getMysqlTime of
     Left str -> error str
     Right x  -> x
 
-instance ColumnValuable MysqlTime where toColVal = getColMysqlTime'
+instance ColumnValuable MysqlTime where toColVal' = getColMysqlTime'
 
 -- -----------------------------------------------------------------------------
 -- parser
@@ -150,19 +153,19 @@ getLocalTime = do
   return $ LocalTime day time
 
 -- | MysqlTime Parser
-getMysqlTime :: SBinG.BitGet MysqlTime 
+getMysqlTime :: Bit.BitGet MysqlTime 
 getMysqlTime = do
-  d1 <- SBinG.getBit
-  d2 <- SBinG.getBit
-  d3 <- SBinG.getBit
-  d4 <- SBinG.getBit
-  d5 <- SBinG.getBit
-  d6 <- SBinG.getBit
-  d7 <- SBinG.getBit
-  d8 <- SBinG.getBit -- sign  true -> negative
-  hh <- SBinG.getAsWord8 8
-  mm <- SBinG.getAsWord8 8 
-  ss <- SBinG.getAsWord8 8
+  d1 <- Bit.getBit
+  d2 <- Bit.getBit
+  d3 <- Bit.getBit
+  d4 <- Bit.getBit
+  d5 <- Bit.getBit
+  d6 <- Bit.getBit
+  d7 <- Bit.getBit
+  d8 <- Bit.getBit -- sign  true -> negative
+  hh <- Bit.getAsWord8 8
+  mm <- Bit.getAsWord8 8 
+  ss <- Bit.getAsWord8 8
   return $ (not d8, TimeOfDay (fromIntegral hh) (fromIntegral mm) (fromIntegral ss))
 
 -- | Day Parser
@@ -227,3 +230,128 @@ formatTimeOfDayPadded tod
   | otherwise       = str ++ "000000000000"
   where
     str = formatTime defaultTimeLocale "%T%Q" tod
+
+-- -----------------------------------------------------------------------------
+-- Decimal  
+
+getDigitsLen :: Bit.BitGet Int
+getDigitsLen = do
+  v <- Bit.getWord8
+  return $ fromIntegral v
+
+getOneDec :: Bit.BitGet Int
+getOneDec = do
+  b3 <- Bit.getBit
+  b2 <- Bit.getBit
+  b1 <- Bit.getBit
+  b0 <- Bit.getBit
+  return $ bit2Int [b3, b2, b1, b0]
+
+getListDec :: Bit.BitGet [Int]
+getListDec = do
+  e <- Bit.isEmpty
+  if e 
+    then return []
+    else do x  <- getOneDec
+            xs <- getListDec
+            return (x:xs)
+
+getDecimal :: ([Int] -> Int -> Bool -> a) -> Bit.BitGet a
+getDecimal fun = do
+  dl   <- getDigitsLen
+  decs <- getListDec
+  let len  = P.length decs
+      pad  = last decs == 0
+      sign = if pad then decs !! (len-2) == 12 else last decs == 12
+      dcb  = if pad then init (init decs)      else init decs
+  return $ fun (map fromIntegral dcb) dl sign 
+
+getDecimalRatio:: (Integral a) => Bit.BitGet (Ratio a)
+getDecimalRatio = getDecimal decodeRatio
+
+getDecimalDouble :: Bit.BitGet Double 
+getDecimalDouble = getDecimal decodeDouble
+
+decodeDouble :: [Int] -> Int -> Bool -> Double -- TODO throw exception
+decodeDouble num frac sign = (sumtimes (map fromIntegral num) base) * (bool2Sign sign)
+   where
+      len = P.length num
+      power = [(len - frac - 1), (len - frac - 2) .. (-frac) ]
+      base :: [Double]
+      base  = P.map (\x -> 10^^x) power 
+
+decodeRatio :: (Integral a) => [Int] -> Int -> Bool -> Ratio a -- TODO throw exception
+decodeRatio num frac sign = (((sumtimes (map fromIntegral num) base) % base')) * (bool2Sign sign)
+   where
+      len = P.length num
+      base  = bases len 
+      base' = head $ bases frac 
+
+bases :: (Num a1, Num a, Enum a) => a -> [a1]
+bases xs = P.foldr (\x acc -> P.head acc * 10 : acc) [1] [2..xs]
+
+bool2Sign :: (Num a) => Bool -> a
+bool2Sign sign = if sign then 1 else -1
+
+-- | fusing zipWith (*) and sum
+-- https://qiita.com/nobsun/items/37d6cc2505af0a3a252f
+-- sumtimes :: [Int] -> [Int] -> Int
+sumtimes :: (Num a) => [a] -> [a] -> a
+sumtimes = foldr fuser (const 0)
+  where
+    fuser x k []     = 0
+    fuser x k (y:ys) = (x * y) + k ys
+
+-- | converts bits to Int.
+bit2Int :: [Bool]  -- | bits (ex. 0101 -> [False, True, False, True])
+           -> Int  -- | Int value (ex. 5)
+bit2Int bits = foldZipWith (+) 0 (\x y -> if y then x else 0) base bits 
+   where base = (P.map (\x -> 2^x) [len,(len-1)..0])
+         len  = P.length bits - 1
+
+-- | fold and zipWith
+foldZipWith :: (c -> c -> c)    -- folding function
+               -> c             -- initial value
+               -> (a -> b -> c) -- zipping functin 
+               -> [a]           -- list 1
+               -> [b]           -- list 2
+               -> c             -- result
+foldZipWith foldFun initial zipFun = foldr fuser (const initial)
+  where
+    fuser x k []     = initial
+    fuser x k (y:ys) = foldFun (zipFun x y) (k ys)
+
+-- | retrive Decimal as Double from a Row.
+getColDecimalDouble :: Row   -- ^ a Row 
+            -> Int       -- ^ column index 
+            -> Double    -- ^ TimeOfDay 
+getColDecimalDouble row idx = getColDecimalDouble' (Seq.index row idx) 
+
+-- | from ByteString to Decimal as Double 
+getColDecimalDouble' :: BL.ByteString -> Double 
+getColDecimalDouble' seq = 
+  case Bit.runBitGet (BL.toStrict seq) getDecimalDouble of
+    Left str -> error str
+    Right x  -> x
+
+-- instance ColumnValuable Double where toColVal' = getColDecimalDouble'
+colValDecimalDouble :: RowFrom Double
+colValDecimalDouble = RowFrom $ \seq -> (getColDecimalDouble' $ Seq.index seq 0, Seq.drop 1 seq)
+
+-- | retrive Decimal as Ratio from a Row.
+getColDecimalRatio :: (Integral a)
+            => Row     -- ^ a Row 
+            -> Int     -- ^ column index 
+            -> Ratio a -- ^ TimeOfDay 
+getColDecimalRatio row idx = getColDecimalRatio' (Seq.index row idx) 
+
+-- | from ByteString to Decimal as Ratio 
+getColDecimalRatio' :: (Integral a) => BL.ByteString -> Ratio a
+getColDecimalRatio' seq = 
+  case Bit.runBitGet (BL.toStrict seq) getDecimalRatio of
+    Left str -> error str
+    Right x  -> x
+
+instance (Integral a) => ColumnValuable (Ratio a) where toColVal' = getColDecimalRatio'
+
+
