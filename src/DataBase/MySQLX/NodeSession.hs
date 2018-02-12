@@ -185,9 +185,6 @@ _negociate = do
       msg <- getError $ snd x
       throwM $ XProtocolError msg
     else do
-      -- cap <- getCapabilities $ snd x
-      -- debug cap
-      liftIO $ B.writeFile "memo/20180826_capabilities" $ snd x
       return ret 
 
 sendAuthenticateStart :: (MonadIO m) => String -> ReaderT NodeSession m () 
